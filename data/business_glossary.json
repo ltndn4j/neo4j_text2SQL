@@ -1,19 +1,4 @@
-import neo4j
-from dotenv import load_dotenv
-from setupAura import getInstanceId
-import os
-
-load_dotenv(override=True)
-
-#Connect to the Neo4j database
-neo4j_config = getInstanceId("875a99c2-d2e2-4bf6-8ddb-78dcc7d2fecc","text2sql-instance")
-neo4j_uri = neo4j_config["neo4j_uri"]
-neo4j_username = neo4j_config["neo4j_username"]
-neo4j_password = neo4j_config["neo4j_password"] or os.getenv('neo4j_password')
-driver = neo4j.GraphDatabase.driver(neo4j_uri, auth=(neo4j_username, neo4j_password))
-session = driver.session()
-
-business_glossary = [
+[
     {
       "term": "Employee",
       "definition": "An individual currently or previously hired by the organization to perform specific roles or duties.",
@@ -25,7 +10,7 @@ business_glossary = [
       "term": "Department",
       "definition": "A distinct functional unit or division within the organization.",
       "technical_mapping": {
-        "table": "department",
+        "table": "department"
       }
     },
     {
@@ -51,12 +36,32 @@ business_glossary = [
       }
     },
     {
-      "term": "Base Salary",
-      "definition": "The fixed amount of monetary compensation paid to an employee for a specific period of their employment.",
-      "technical_mapping": {
-        "table": "salary",
-        "column": "amount"
-      }
+      "term": "Total Rewards",
+      "definition": "This function ensures employees are fairly compensated and feel valued for their work.",
+      "terms":[
+        {
+          "term": "Compensation",
+          "definition": "The total monetary compensation received by an employee, including base salary, bonuses, and other forms of compensation.",
+          "terms":[
+            {
+              "term": "Base Salary",
+              "definition": "The fixed amount of monetary compensation paid to an employee for a specific period of their employment.",
+              "technical_mapping": {
+                "table": "salary",
+                "column": "amount"
+              }
+            },
+            {
+              "term": "Bonus",
+              "definition": "A one-time or recurring monetary award given to an employee as a performance incentive or recognition."
+            }
+          ]
+        },
+        {
+          "term": "Benefits",
+          "definition": "Overseeing health insurance, retirement plans, and wellness perks"
+        }
+      ]
     },
     {
       "term": "Hire Date",
@@ -75,24 +80,3 @@ business_glossary = [
       }
     }
 ]
-
-for term in business_glossary:
-    technical_mapping = term["technical_mapping"]
-    if technical_mapping.get("column"): 
-        nodeDefined = "MERGE (x:Column {tableName: $table_name, name: $column_name})"
-    else:
-        nodeDefined = "MERGE (x:Table {name: $table_name})"
-    
-    cypher=f"""
-        MERGE (t:Term {{name: $term}})
-        SET t.definition = $definition
-        {nodeDefined}
-        MERGE (x)-[:IS_DEFINED_BY]->(t)
-    """
-    params={
-        "term": term["term"],
-        "definition": term["definition"],
-        "table_name": technical_mapping["table"],
-        "column_name": technical_mapping.get("column")
-    }
-    session.run(cypher, params)

@@ -1,4 +1,4 @@
-import manageInstance as mi
+import aura.manageInstance as mi
 import time
 
 def getInstanceId(project_id,instance_name):

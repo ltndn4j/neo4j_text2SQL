@@ -1,0 +1,9 @@
+2017-07-19 16:42:09.369 UTC,"postgres","postgres",11956,"::1:22927",596f89e1.2eb4,37,"idle",2017-07-19 16:33:37 UTC,2/20,0,LOG,00000,"statement: SELECT e.gender, AVG(s.benefits_score) AS average_benefits_score FROM hr_survey.satisfaction_survey AS s JOIN employees.employee e ON s.employee_email = e.email GROUP BY e.gender;",,,,,,,,"exec_simple_query, src\backend\tcop\postgres.c:914","pgAdmin III - Query Tool"
+2017-07-19 16:42:09.369 UTC,"postgres","postgres",11956,"::1:22927",596f89e1.2eb4,38,"SELECT",2017-07-19 16:33:37 UTC,2/0,0,LOG,00000,"duration: 0.000 ms",,,,,,,,"exec_simple_query, src\backend\tcop\postgres.c:1142","pgAdmin III - Query Tool"
+2017-07-19 16:42:09.416 UTC,"postgres","postgres",11956,"::1:22927",596f89e1.2eb4,39,"idle",2017-07-19 16:33:37 UTC,2/21,0,LOG,00000,"statement: SELECT count(*) from employees.employee;",,,,,,,,"exec_simple_query, src\backend\tcop\postgres.c:914","pgAdmin III - Query Tool"
+2017-07-19 16:42:09.416 UTC,"postgres","postgres",11956,"::1:22927",596f89e1.2eb4,40,"SELECT",2017-07-19 16:33:37 UTC,2/0,0,LOG,00000,"duration: 0.000 ms",,,,,,,,"exec_simple_query, src\backend\tcop\postgres.c:1142","pgAdmin III - Query Tool"
+2017-07-19 16:42:09.416 UTC,"postgres","postgres",11956,"::1:22927",596f89e1.2eb4,41,"idle",2017-07-19 16:33:37 UTC,2/22,0,LOG,00000,"statement: SELECT e.gender, AVG(s.amount) AS average_salary
+FROM employees.employee AS e
+JOIN employees.salary s ON e.id = s.employee_id
+GROUP BY e.gender;",,,,,,,,"exec_simple_query, src\backend\tcop\postgres.c:914","pgAdmin III - Query Tool"
+2017-07-19 16:42:09.416 UTC,"postgres","postgres",11956,"::1:22927",596f89e1.2eb4,42,"SELECT",2017-07-19 16:33:37 UTC,2/0,0,LOG,00000,"duration: 0.000 ms",,,,,,,,"exec_simple_query, src\backend\tcop\postgres.c:1142","pgAdmin III - Query Tool"

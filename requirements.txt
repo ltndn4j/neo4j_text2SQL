@@ -1,4 +1,12 @@
 python-dotenv==1.1.1
+langchain>=0.3.0,<0.4
+langchain-openai>=0.2.0,<0.4
 requests==2.32.5
 neo4j==6.1.0
 psycopg2-binary==2.9.11
+neo4j-graphrag[openai]==1.14.0
+google-cloud-bigquery>=3.25.0
+pandas>=2.0.0
+pyarrow>=15.0.0
+db-dtypes>=1.2.0
+google-genai==1.70.0
