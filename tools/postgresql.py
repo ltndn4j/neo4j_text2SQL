@@ -30,8 +30,6 @@ def create_db_tools(conn: psycopg2.extensions.connection):
                 rows = cur.fetchall()
         except Exception as e:
             return f"SQL error: {e}"
-        finally:
-            conn.close()
         if not rows:
             return "0 rows.\nColumns: " + ", ".join(colnames)
         width = min(len(rows), 100)
@@ -62,8 +60,6 @@ def create_db_tools(conn: psycopg2.extensions.connection):
                 rows = cur.fetchall()
         except Exception as e:
             return f"Schema query error: {e}"
-        finally:
-            conn.close()
         if not rows:
             return f"No columns found for schema {pg_schema!r}."
         lines = [f"{t}.{c} ({dt}, nullable={n})" for t, c, dt, n in rows]

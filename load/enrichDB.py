@@ -46,6 +46,12 @@ def main():
                 cur.execute(sql)
                 conn.commit()
                 print("addDBData.sql executed successfully.")
+            with open("data/newTables.sql", "r") as file:
+                sql = file.read()
+                cur.execute(sql)
+                conn.commit()
+                print("newTables.sql executed successfully.")
+
     except Exception:
         conn.rollback()
         raise

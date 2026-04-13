@@ -1,0 +1,923 @@
+# PostgreSQL catalog: 50 tables across 18 schemas (employees + hr_survey + extensions).
+# Aligns with data/addDBData.sql, data/newTables.sql, and the classic employees dataset.
+# employees.* DDL may vary by install; types/PKs below match typical ports and FKs in newTables.sql.
+
+database: postgresql
+version_note: Column types reflect project SQL; verify INTEGER vs BIGINT for employees.employee.id on your instance.
+
+schemas:
+  employees:
+    description: Core workforce dimensions—people, departments, history of dept assignments, titles, salaries, and managers.
+    tables:
+      employee:
+        description: One row per person employed; anchor for most HR and operational facts.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id:
+            type: INTEGER
+            nullable: false
+            description: Surrogate employee identifier (often emp_no in sample databases).
+          birth_date:
+            type: DATE
+            nullable: true
+            description: Date of birth.
+          first_name:
+            type: VARCHAR
+            nullable: true
+            description: Given name.
+          last_name:
+            type: VARCHAR
+            nullable: true
+            description: Family name.
+          gender:
+            type: CHAR(1)
+            nullable: true
+            description: Gender code (dataset-specific).
+          hire_date:
+            type: DATE
+            nullable: true
+            description: Employment start date.
+          email:
+            type: VARCHAR(255)
+            nullable: true
+            description: Work email; join to hr_survey.satisfaction_survey on email when survey rows exist.
+        foreign_keys: []
+
+      department:
+        description: Organizational units (departments).
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id:
+            type: CHAR(4)
+            nullable: false
+            description: Department code (dept_no); referenced by department_employee, department_manager, and extension tables.
+          dept_name:
+            type: VARCHAR
+            nullable: true
+            description: Human-readable department name.
+        foreign_keys: []
+
+      department_employee:
+        description: History of which department an employee belonged to over time.
+        primary_key: [employee_id, department_id, from_date]
+        unique_constraints: []
+        columns:
+          employee_id:
+            type: INTEGER
+            nullable: false
+            description: Employee in the assignment.
+          department_id:
+            type: CHAR(4)
+            nullable: false
+            description: Department for this interval.
+          from_date:
+            type: DATE
+            nullable: false
+            description: Start of this department membership.
+          to_date:
+            type: DATE
+            nullable: true
+            description: End of membership; null or future date if current.
+        foreign_keys:
+          - columns: [employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+          - columns: [department_id]
+            references: { schema: employees, table: department, columns: [id] }
+
+      department_manager:
+        description: History of department managers (which employee managed which department over time).
+        primary_key: [employee_id, department_id, from_date]
+        unique_constraints: []
+        columns:
+          department_id:
+            type: CHAR(4)
+            nullable: false
+            description: Managed department.
+          employee_id:
+            type: INTEGER
+            nullable: false
+            description: Manager’s employee id.
+          from_date:
+            type: DATE
+            nullable: false
+            description: Start of management assignment.
+          to_date:
+            type: DATE
+            nullable: true
+            description: End of management assignment.
+        foreign_keys:
+          - columns: [employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+          - columns: [department_id]
+            references: { schema: employees, table: department, columns: [id] }
+
+      salary:
+        description: Pay amount history per employee (effective-dated).
+        primary_key: [employee_id, from_date]
+        unique_constraints: []
+        columns:
+          employee_id:
+            type: INTEGER
+            nullable: false
+            description: Employee receiving the salary.
+          amount:
+            type: INTEGER
+            nullable: true
+            description: Salary for the period (integer units in classic dataset; may be NUMERIC elsewhere).
+          from_date:
+            type: DATE
+            nullable: false
+            description: Effective start of this salary row.
+          to_date:
+            type: DATE
+            nullable: true
+            description: Effective end of this salary row.
+        foreign_keys:
+          - columns: [employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+
+      title:
+        description: Job title history per employee (effective-dated).
+        primary_key: [employee_id, from_date, title]
+        unique_constraints: []
+        columns:
+          employee_id:
+            type: INTEGER
+            nullable: false
+            description: Employee holding the title.
+          title:
+            type: VARCHAR
+            nullable: false
+            description: Job title text.
+          from_date:
+            type: DATE
+            nullable: false
+            description: Title effective from.
+          to_date:
+            type: DATE
+            nullable: true
+            description: Title effective to.
+        foreign_keys:
+          - columns: [employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+
+  hr_survey:
+    description: Employee engagement survey responses (not keyed to employee id; use email to join).
+    tables:
+      satisfaction_survey:
+        description: One row per survey submission with Likert scores and free-text feedback.
+        primary_key: [response_id]
+        unique_constraints: []
+        columns:
+          response_id:
+            type: INTEGER
+            nullable: false
+            description: SERIAL primary key for each response.
+          employee_email:
+            type: VARCHAR(255)
+            nullable: false
+            description: Submitter email; join to employees.employee.email for person-level analytics.
+          recruitment_score:
+            type: INTEGER
+            nullable: true
+            description: Rating 1–5 (CHECK in database).
+          benefits_score:
+            type: INTEGER
+            nullable: true
+            description: Rating 1–5.
+          communication_score:
+            type: INTEGER
+            nullable: true
+            description: Rating 1–5.
+          support_score:
+            type: INTEGER
+            nullable: true
+            description: Rating 1–5.
+          development_score:
+            type: INTEGER
+            nullable: true
+            description: Rating 1–5.
+          payroll_score:
+            type: INTEGER
+            nullable: true
+            description: Rating 1–5.
+          top_strength:
+            type: TEXT
+            nullable: true
+            description: Free-text strength.
+          improvement_area:
+            type: TEXT
+            nullable: true
+            description: Free-text improvement theme.
+          additional_comments:
+            type: TEXT
+            nullable: true
+            description: Optional comments.
+          submitted_at:
+            type: TIMESTAMP WITH TIME ZONE
+            nullable: true
+            description: Submission timestamp; default CURRENT_TIMESTAMP in DDL.
+        foreign_keys: []
+        logical_joins:
+          - description: Link survey to core HR employee row when emails match.
+            from_columns: [employee_email]
+            to: { schema: employees, table: employee, columns: [email] }
+            note: Not enforced as a database FK; use for query design only.
+
+  payroll:
+    description: Pay periods, runs, deductions, and pay stubs.
+    tables:
+      pay_period:
+        description: A closed or open payroll calendar window and pay date.
+        primary_key: [id]
+        unique_constraints: [[period_code]]
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL surrogate key. }
+          period_code: { type: VARCHAR(32), nullable: false, description: Unique business code for the period. }
+          start_date: { type: DATE, nullable: false, description: Period start. }
+          end_date: { type: DATE, nullable: false, description: Period end. }
+          pay_date: { type: DATE, nullable: false, description: Payment date. }
+          status: { type: VARCHAR(32), nullable: false, description: "e.g. open, closed." }
+        foreign_keys: []
+
+      pay_run:
+        description: Execution of payroll for a given pay period.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          pay_period_id: { type: INTEGER, nullable: false, description: Parent pay period. }
+          run_at: { type: TIMESTAMP WITH TIME ZONE, nullable: true, description: When the run was created. }
+          status: { type: VARCHAR(32), nullable: false, description: Run lifecycle state. }
+        foreign_keys:
+          - columns: [pay_period_id]
+            references: { schema: payroll, table: pay_period, columns: [id] }
+
+      deduction_type:
+        description: Catalog of deduction codes (tax, benefits, etc.).
+        primary_key: [id]
+        unique_constraints: [[code]]
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          code: { type: VARCHAR(64), nullable: false, description: Stable deduction code. }
+          name: { type: VARCHAR(255), nullable: false, description: Display name. }
+          is_pre_tax: { type: BOOLEAN, nullable: false, description: Whether applied before tax. }
+        foreign_keys: []
+
+      employee_deduction:
+        description: Per-employee recurring or fixed deductions.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          employee_id: { type: INTEGER, nullable: false, description: Employee. }
+          deduction_type_id: { type: INTEGER, nullable: false, description: Deduction kind. }
+          amount: { type: "NUMERIC(12,2)", nullable: false, description: Deduction amount. }
+          effective_from: { type: DATE, nullable: false, description: Start date. }
+          effective_to: { type: DATE, nullable: true, description: End date if ended. }
+        foreign_keys:
+          - columns: [employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+          - columns: [deduction_type_id]
+            references: { schema: payroll, table: deduction_type, columns: [id] }
+
+      pay_stub:
+        description: Individual pay outcome for an employee in a pay run.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          employee_id: { type: INTEGER, nullable: false, description: Payee. }
+          pay_run_id: { type: INTEGER, nullable: false, description: Pay run this stub belongs to. }
+          gross_pay: { type: "NUMERIC(12,2)", nullable: false, description: Gross amount. }
+          net_pay: { type: "NUMERIC(12,2)", nullable: false, description: Net pay. }
+          issued_at: { type: TIMESTAMP WITH TIME ZONE, nullable: true, description: Issue timestamp. }
+        foreign_keys:
+          - columns: [employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+          - columns: [pay_run_id]
+            references: { schema: payroll, table: pay_run, columns: [id] }
+
+  recruitment:
+    description: Requisitions, candidates, applications, interviews, and offers.
+    tables:
+      job_requisition:
+        description: Open or closed role tied to a department.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          department_id: { type: CHAR(4), nullable: true, description: Hiring department. }
+          title: { type: VARCHAR(255), nullable: false, description: Role title. }
+          opened_at: { type: DATE, nullable: false, description: Requisition open date. }
+          closed_at: { type: DATE, nullable: true, description: Close date if closed. }
+          status: { type: VARCHAR(32), nullable: false, description: Pipeline state. }
+        foreign_keys:
+          - columns: [department_id]
+            references: { schema: employees, table: department, columns: [id] }
+
+      candidate:
+        description: Person in the talent pipeline (may not be an employee).
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          email: { type: VARCHAR(255), nullable: false, description: Contact email. }
+          first_name: { type: VARCHAR(100), nullable: true, description: Given name. }
+          last_name: { type: VARCHAR(100), nullable: true, description: Family name. }
+          phone: { type: VARCHAR(50), nullable: true, description: Phone. }
+          resume_url: { type: TEXT, nullable: true, description: Link or path to resume. }
+        foreign_keys: []
+
+      application:
+        description: Candidate applied to a specific requisition.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          requisition_id: { type: INTEGER, nullable: false, description: Target job. }
+          candidate_id: { type: INTEGER, nullable: false, description: Applicant. }
+          applied_at: { type: TIMESTAMP WITH TIME ZONE, nullable: true, description: Application time. }
+          status: { type: VARCHAR(32), nullable: false, description: Application state. }
+        foreign_keys:
+          - columns: [requisition_id]
+            references: { schema: recruitment, table: job_requisition, columns: [id] }
+          - columns: [candidate_id]
+            references: { schema: recruitment, table: candidate, columns: [id] }
+
+      interview:
+        description: Scheduled interview for an application.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          application_id: { type: INTEGER, nullable: false, description: Application being interviewed. }
+          scheduled_at: { type: TIMESTAMP WITH TIME ZONE, nullable: false, description: Interview slot. }
+          interviewer_employee_id: { type: INTEGER, nullable: true, description: Internal interviewer. }
+          outcome: { type: VARCHAR(64), nullable: true, description: Result summary. }
+        foreign_keys:
+          - columns: [application_id]
+            references: { schema: recruitment, table: application, columns: [id] }
+          - columns: [interviewer_employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+
+      offer:
+        description: Offer extended from an application.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          application_id: { type: INTEGER, nullable: false, description: Source application. }
+          salary_offered: { type: "NUMERIC(12,2)", nullable: true, description: Proposed compensation. }
+          valid_until: { type: DATE, nullable: true, description: Offer expiry. }
+          status: { type: VARCHAR(32), nullable: false, description: "accepted, declined, pending, etc." }
+        foreign_keys:
+          - columns: [application_id]
+            references: { schema: recruitment, table: application, columns: [id] }
+
+  training:
+    description: Courses, enrollments, and certifications.
+    tables:
+      course:
+        description: Training catalog entry.
+        primary_key: [id]
+        unique_constraints: [[code]]
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          code: { type: VARCHAR(64), nullable: false, description: Unique course code. }
+          title: { type: VARCHAR(255), nullable: false, description: Course name. }
+          duration_hours: { type: "NUMERIC(6,2)", nullable: true, description: Estimated duration. }
+        foreign_keys: []
+
+      enrollment:
+        description: Employee registered for a course.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          employee_id: { type: INTEGER, nullable: false, description: Learner. }
+          course_id: { type: INTEGER, nullable: false, description: Course. }
+          enrolled_at: { type: TIMESTAMP WITH TIME ZONE, nullable: true, description: Sign-up time. }
+          completed_at: { type: TIMESTAMP WITH TIME ZONE, nullable: true, description: Completion time. }
+          score: { type: "NUMERIC(5,2)", nullable: true, description: Assessment score if any. }
+        foreign_keys:
+          - columns: [employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+          - columns: [course_id]
+            references: { schema: training, table: course, columns: [id] }
+
+      certification:
+        description: Credential earned by an employee.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          employee_id: { type: INTEGER, nullable: false, description: Holder. }
+          name: { type: VARCHAR(255), nullable: false, description: Certification name. }
+          issuer: { type: VARCHAR(255), nullable: true, description: Issuing body. }
+          earned_at: { type: DATE, nullable: false, description: Award date. }
+          expires_at: { type: DATE, nullable: true, description: Expiry if applicable. }
+        foreign_keys:
+          - columns: [employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+
+  benefits:
+    description: Benefit plans, enrollments, and dependents.
+    tables:
+      benefit_plan:
+        description: Plan master (medical, dental, etc.).
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          name: { type: VARCHAR(255), nullable: false, description: Plan display name. }
+          plan_type: { type: VARCHAR(64), nullable: false, description: Category of benefit. }
+          effective_from: { type: DATE, nullable: false, description: Plan effective date. }
+        foreign_keys: []
+
+      employee_enrollment:
+        description: Employee opted into a plan.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          employee_id: { type: INTEGER, nullable: false, description: Enrollee. }
+          benefit_plan_id: { type: INTEGER, nullable: false, description: Plan. }
+          enrolled_at: { type: TIMESTAMP WITH TIME ZONE, nullable: true, description: Enrollment timestamp. }
+        foreign_keys:
+          - columns: [employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+          - columns: [benefit_plan_id]
+            references: { schema: benefits, table: benefit_plan, columns: [id] }
+
+      dependent:
+        description: Dependent covered under an enrollment.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          employee_enrollment_id: { type: INTEGER, nullable: false, description: Parent enrollment row. }
+          first_name: { type: VARCHAR(100), nullable: false, description: Dependent first name. }
+          birth_date: { type: DATE, nullable: true, description: DOB. }
+          relationship: { type: VARCHAR(64), nullable: true, description: Relationship to employee. }
+        foreign_keys:
+          - columns: [employee_enrollment_id]
+            references: { schema: benefits, table: employee_enrollment, columns: [id] }
+
+  assets:
+    description: Physical or logical assets assigned to employees.
+    tables:
+      asset:
+        description: Asset registry.
+        primary_key: [id]
+        unique_constraints: [[tag]]
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          tag: { type: VARCHAR(64), nullable: false, description: Asset tag / serial. }
+          name: { type: VARCHAR(255), nullable: false, description: Description. }
+          category: { type: VARCHAR(100), nullable: true, description: Asset class. }
+          purchase_date: { type: DATE, nullable: true, description: Purchase date. }
+          status: { type: VARCHAR(32), nullable: false, description: "in_stock, assigned, retired, etc." }
+        foreign_keys: []
+
+      assignment:
+        description: Asset checked out to an employee for a date range.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          asset_id: { type: INTEGER, nullable: false, description: Asset. }
+          employee_id: { type: INTEGER, nullable: false, description: Custodian. }
+          assigned_from: { type: DATE, nullable: false, description: Assignment start. }
+          assigned_to: { type: DATE, nullable: true, description: Assignment end. }
+        foreign_keys:
+          - columns: [asset_id]
+            references: { schema: assets, table: asset, columns: [id] }
+          - columns: [employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+
+  compliance:
+    description: Policies and employee acknowledgments.
+    tables:
+      policy:
+        description: Compliance or HR policy document version.
+        primary_key: [id]
+        unique_constraints: [[code]]
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          code: { type: VARCHAR(64), nullable: false, description: Stable policy code. }
+          title: { type: VARCHAR(255), nullable: false, description: Policy title. }
+          version: { type: VARCHAR(32), nullable: false, description: Version label. }
+          published_at: { type: TIMESTAMP WITH TIME ZONE, nullable: true, description: Publication time. }
+        foreign_keys: []
+
+      acknowledgment:
+        description: Record that an employee acknowledged a policy (unique per policy+employee).
+        primary_key: [id]
+        unique_constraints: [[policy_id, employee_id]]
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          policy_id: { type: INTEGER, nullable: false, description: Policy acknowledged. }
+          employee_id: { type: INTEGER, nullable: false, description: Acknowledger. }
+          acknowledged_at: { type: TIMESTAMP WITH TIME ZONE, nullable: true, description: When signed. }
+        foreign_keys:
+          - columns: [policy_id]
+            references: { schema: compliance, table: policy, columns: [id] }
+          - columns: [employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+
+  timekeeping:
+    description: Weekly timesheets and daily entries.
+    tables:
+      timesheet:
+        description: Employee timesheet for a week.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          employee_id: { type: INTEGER, nullable: false, description: Submitter. }
+          week_start: { type: DATE, nullable: false, description: Week anchor date. }
+          submitted_at: { type: TIMESTAMP WITH TIME ZONE, nullable: true, description: Submission time. }
+          status: { type: VARCHAR(32), nullable: false, description: "draft, submitted, approved." }
+        foreign_keys:
+          - columns: [employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+
+      time_entry:
+        description: Hours booked on a given day within a timesheet.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          timesheet_id: { type: INTEGER, nullable: false, description: Parent timesheet. }
+          work_date: { type: DATE, nullable: false, description: Worked date. }
+          hours: { type: "NUMERIC(5,2)", nullable: false, description: Hours worked. }
+          project_code: { type: VARCHAR(64), nullable: true, description: Optional project or cost code. }
+        foreign_keys:
+          - columns: [timesheet_id]
+            references: { schema: timekeeping, table: timesheet, columns: [id] }
+
+  org:
+    description: Offices, teams, and team membership.
+    tables:
+      office_location:
+        description: Physical or logical office site.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          name: { type: VARCHAR(255), nullable: false, description: Site name. }
+          city: { type: VARCHAR(128), nullable: true, description: City. }
+          country: { type: VARCHAR(128), nullable: true, description: Country. }
+        foreign_keys: []
+
+      team:
+        description: Team optionally tied to department and office.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          name: { type: VARCHAR(255), nullable: false, description: Team name. }
+          department_id: { type: CHAR(4), nullable: true, description: Owning department. }
+          office_location_id: { type: INTEGER, nullable: true, description: Primary office. }
+        foreign_keys:
+          - columns: [department_id]
+            references: { schema: employees, table: department, columns: [id] }
+          - columns: [office_location_id]
+            references: { schema: org, table: office_location, columns: [id] }
+
+      team_member:
+        description: Employee membership in a team over time.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          team_id: { type: INTEGER, nullable: false, description: Team. }
+          employee_id: { type: INTEGER, nullable: false, description: Member. }
+          role: { type: VARCHAR(64), nullable: true, description: Role on team. }
+          from_date: { type: DATE, nullable: false, description: Membership start. }
+          to_date: { type: DATE, nullable: true, description: Membership end. }
+        foreign_keys:
+          - columns: [team_id]
+            references: { schema: org, table: team, columns: [id] }
+          - columns: [employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+
+  projects:
+    description: Internal projects and staffing.
+    tables:
+      project:
+        description: Project master with optional department owner.
+        primary_key: [id]
+        unique_constraints: [[code]]
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          code: { type: VARCHAR(64), nullable: false, description: Unique project code. }
+          name: { type: VARCHAR(255), nullable: false, description: Project name. }
+          department_id: { type: CHAR(4), nullable: true, description: Sponsoring department. }
+          start_date: { type: DATE, nullable: true, description: Planned or actual start. }
+          end_date: { type: DATE, nullable: true, description: Planned or actual end. }
+          status: { type: VARCHAR(32), nullable: false, description: "active, closed, etc." }
+        foreign_keys:
+          - columns: [department_id]
+            references: { schema: employees, table: department, columns: [id] }
+
+      project_member:
+        description: Employee allocation to a project.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          project_id: { type: INTEGER, nullable: false, description: Project. }
+          employee_id: { type: INTEGER, nullable: false, description: Contributor. }
+          role: { type: VARCHAR(64), nullable: true, description: Project role. }
+          allocation_pct: { type: "NUMERIC(5,2)", nullable: true, description: FTE percent 0–100. }
+        foreign_keys:
+          - columns: [project_id]
+            references: { schema: projects, table: project, columns: [id] }
+          - columns: [employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+
+  expenses:
+    description: Expense reports and line items.
+    tables:
+      expense_report:
+        description: Header for submitted employee expenses.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          employee_id: { type: INTEGER, nullable: false, description: Submitter. }
+          submitted_at: { type: TIMESTAMP WITH TIME ZONE, nullable: true, description: Submission time. }
+          status: { type: VARCHAR(32), nullable: false, description: Workflow state. }
+          total_amount: { type: "NUMERIC(12,2)", nullable: true, description: Report total if stored. }
+        foreign_keys:
+          - columns: [employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+
+      expense_line:
+        description: Individual expense line on a report.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          expense_report_id: { type: INTEGER, nullable: false, description: Parent report. }
+          expense_date: { type: DATE, nullable: false, description: Transaction date. }
+          category: { type: VARCHAR(100), nullable: true, description: Expense category. }
+          amount: { type: "NUMERIC(12,2)", nullable: false, description: Line amount. }
+          description: { type: TEXT, nullable: true, description: Notes. }
+        foreign_keys:
+          - columns: [expense_report_id]
+            references: { schema: expenses, table: expense_report, columns: [id] }
+
+  performance:
+    description: Review cycles, reviews, and goals (schema name performance in PostgreSQL).
+    tables:
+      review_cycle:
+        description: Named performance period (e.g. annual cycle).
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          name: { type: VARCHAR(255), nullable: false, description: Cycle label. }
+          period_start: { type: DATE, nullable: false, description: Cycle start. }
+          period_end: { type: DATE, nullable: false, description: Cycle end. }
+        foreign_keys: []
+
+      review:
+        description: One employee review in a cycle; manager is another employee.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          cycle_id: { type: INTEGER, nullable: false, description: Review cycle. }
+          employee_id: { type: INTEGER, nullable: false, description: Reviewee. }
+          manager_id: { type: INTEGER, nullable: true, description: Reviewer (manager). }
+          overall_rating: { type: "NUMERIC(3,1)", nullable: true, description: Summary rating. }
+          completed_at: { type: TIMESTAMP WITH TIME ZONE, nullable: true, description: Completion time. }
+        foreign_keys:
+          - columns: [cycle_id]
+            references: { schema: performance, table: review_cycle, columns: [id] }
+          - columns: [employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+          - columns: [manager_id]
+            references: { schema: employees, table: employee, columns: [id] }
+
+      goal:
+        description: Goal attached to a performance review.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          review_id: { type: INTEGER, nullable: false, description: Parent review. }
+          description: { type: TEXT, nullable: false, description: Goal text. }
+          target_date: { type: DATE, nullable: true, description: Target completion. }
+          status: { type: VARCHAR(32), nullable: false, description: "open, done, etc." }
+        foreign_keys:
+          - columns: [review_id]
+            references: { schema: performance, table: review, columns: [id] }
+
+  leave_mgmt:
+    description: Leave types and employee leave requests (schema leave_mgmt).
+    tables:
+      leave_type:
+        description: Catalog of PTO, sick, unpaid, etc.
+        primary_key: [id]
+        unique_constraints: [[code]]
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          code: { type: VARCHAR(32), nullable: false, description: Short code. }
+          name: { type: VARCHAR(128), nullable: false, description: Display name. }
+          paid: { type: BOOLEAN, nullable: false, description: Paid vs unpaid. }
+        foreign_keys: []
+
+      leave_request:
+        description: Employee request for time off.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          employee_id: { type: INTEGER, nullable: false, description: Requestor. }
+          leave_type_id: { type: INTEGER, nullable: false, description: Leave kind. }
+          start_date: { type: DATE, nullable: false, description: Absence start. }
+          end_date: { type: DATE, nullable: false, description: Absence end. }
+          status: { type: VARCHAR(32), nullable: false, description: "pending, approved, denied." }
+        foreign_keys:
+          - columns: [employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+          - columns: [leave_type_id]
+            references: { schema: leave_mgmt, table: leave_type, columns: [id] }
+
+  vendors:
+    description: Third-party vendors and contracts.
+    tables:
+      vendor:
+        description: Supplier or partner master.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          name: { type: VARCHAR(255), nullable: false, description: Vendor legal or trade name. }
+          category: { type: VARCHAR(100), nullable: true, description: Vendor segment. }
+          contact_email: { type: VARCHAR(255), nullable: true, description: Primary contact email. }
+        foreign_keys: []
+
+      contract:
+        description: Agreement with a vendor.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          vendor_id: { type: INTEGER, nullable: false, description: Vendor. }
+          title: { type: VARCHAR(255), nullable: false, description: Contract title. }
+          start_date: { type: DATE, nullable: false, description: Effective start. }
+          end_date: { type: DATE, nullable: true, description: Expiry. }
+          amount: { type: "NUMERIC(14,2)", nullable: true, description: Contract value. }
+        foreign_keys:
+          - columns: [vendor_id]
+            references: { schema: vendors, table: vendor, columns: [id] }
+
+  skills:
+    description: Skill dictionary and employee proficiency.
+    tables:
+      skill:
+        description: Canonical skill or competency.
+        primary_key: [id]
+        unique_constraints: [[code]]
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          code: { type: VARCHAR(64), nullable: false, description: Skill code. }
+          name: { type: VARCHAR(255), nullable: false, description: Skill name. }
+        foreign_keys: []
+
+      employee_skill:
+        description: Proficiency of an employee in a skill (unique pair).
+        primary_key: [id]
+        unique_constraints: [[employee_id, skill_id]]
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          employee_id: { type: INTEGER, nullable: false, description: Employee. }
+          skill_id: { type: INTEGER, nullable: false, description: Skill. }
+          proficiency: { type: VARCHAR(32), nullable: true, description: "e.g. beginner, expert." }
+        foreign_keys:
+          - columns: [employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+          - columns: [skill_id]
+            references: { schema: skills, table: skill, columns: [id] }
+
+  documents:
+    description: Stored files and per-employee access grants.
+    tables:
+      document:
+        description: Metadata for an uploaded file.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          title: { type: VARCHAR(255), nullable: false, description: Document title. }
+          storage_key: { type: TEXT, nullable: false, description: Object store or path key. }
+          mime_type: { type: VARCHAR(128), nullable: true, description: MIME type. }
+          uploaded_at: { type: TIMESTAMP WITH TIME ZONE, nullable: true, description: Upload time. }
+          uploaded_by_employee_id: { type: INTEGER, nullable: true, description: Uploader. }
+        foreign_keys:
+          - columns: [uploaded_by_employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+
+      document_access:
+        description: Employee granted access to a document (unique pair).
+        primary_key: [id]
+        unique_constraints: [[document_id, employee_id]]
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          document_id: { type: INTEGER, nullable: false, description: Document. }
+          employee_id: { type: INTEGER, nullable: false, description: Grantee. }
+          granted_at: { type: TIMESTAMP WITH TIME ZONE, nullable: true, description: Grant time. }
+        foreign_keys:
+          - columns: [document_id]
+            references: { schema: documents, table: document, columns: [id] }
+          - columns: [employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+
+  onboarding:
+    description: Checklist templates and per-employee onboarding tasks.
+    tables:
+      checklist_template:
+        description: Reusable onboarding checklist definition.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          name: { type: VARCHAR(255), nullable: false, description: Template name. }
+          role_hint: { type: VARCHAR(100), nullable: true, description: Optional targeting hint. }
+        foreign_keys: []
+
+      onboarding_task:
+        description: Concrete task for an employee’s onboarding.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          employee_id: { type: INTEGER, nullable: false, description: New hire or transferee. }
+          checklist_template_id: { type: INTEGER, nullable: true, description: Source template. }
+          title: { type: VARCHAR(255), nullable: false, description: Task title. }
+          due_date: { type: DATE, nullable: true, description: Due date. }
+          completed_at: { type: TIMESTAMP WITH TIME ZONE, nullable: true, description: Completion time. }
+          status: { type: VARCHAR(32), nullable: false, description: "pending, done, etc." }
+        foreign_keys:
+          - columns: [employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+          - columns: [checklist_template_id]
+            references: { schema: onboarding, table: checklist_template, columns: [id] }
+
+  announcements:
+    description: Company-wide or HR announcements.
+    tables:
+      announcement:
+        description: Published message with optional author employee.
+        primary_key: [id]
+        unique_constraints: []
+        columns:
+          id: { type: INTEGER, nullable: false, description: SERIAL primary key. }
+          title: { type: VARCHAR(255), nullable: false, description: Headline. }
+          body: { type: TEXT, nullable: true, description: Full text. }
+          published_at: { type: TIMESTAMP WITH TIME ZONE, nullable: true, description: Publish time. }
+          author_employee_id: { type: INTEGER, nullable: true, description: Author if internal. }
+        foreign_keys:
+          - columns: [author_employee_id]
+            references: { schema: employees, table: employee, columns: [id] }
+
+# Quick join reference (same information as foreign_keys above; useful for LLM prompts).
+join_cheatsheet:
+  - "employees.department_employee → employees.employee ON employee_id = employee.id"
+  - "employees.department_employee → employees.department ON department_id = department.id"
+  - "employees.department_manager → employees.employee ON employee_id = employee.id"
+  - "employees.department_manager → employees.department ON department_id = department.id"
+  - "employees.salary → employees.employee ON employee_id = employee.id"
+  - "employees.title → employees.employee ON employee_id = employee.id"
+  - "hr_survey.satisfaction_survey → employees.employee ON employee_email = employee.email (logical)"
+  - "payroll.pay_run → payroll.pay_period ON pay_period_id = pay_period.id"
+  - "payroll.employee_deduction → employees.employee + payroll.deduction_type"
+  - "payroll.pay_stub → employees.employee + payroll.pay_run"
+  - "recruitment.application → recruitment.job_requisition + recruitment.candidate"
+  - "recruitment.interview → recruitment.application; interviewer_employee_id → employees.employee"
+  - "recruitment.offer → recruitment.application"
+  - "training.enrollment → employees.employee + training.course"
+  - "benefits.dependent → benefits.employee_enrollment → benefits.benefit_plan + employees.employee"
+  - "assets.assignment → assets.asset + employees.employee"
+  - "compliance.acknowledgment → compliance.policy + employees.employee"
+  - "timekeeping.time_entry → timekeeping.timesheet → employees.employee"
+  - "org.team → employees.department + org.office_location"
+  - "org.team_member → org.team + employees.employee"
+  - "projects.project_member → projects.project → employees.department"
+  - "expenses.expense_line → expenses.expense_report → employees.employee"
+  - "performance.goal → performance.review → performance.review_cycle; review.manager_id → employees.employee"
+  - "leave_mgmt.leave_request → leave_mgmt.leave_type + employees.employee"
+  - "vendors.contract → vendors.vendor"
+  - "skills.employee_skill → skills.skill + employees.employee"
+  - "documents.document_access → documents.document + employees.employee"
+  - "onboarding.onboarding_task → onboarding.checklist_template + employees.employee"
+  - "announcements.announcement.author_employee_id → employees.employee"
+
+table_count: 50

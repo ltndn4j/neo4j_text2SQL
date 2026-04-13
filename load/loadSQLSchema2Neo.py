@@ -224,7 +224,8 @@ def load():
     neo4j_password = neo4j_config["neo4j_password"] or os.getenv('neo4j_password')
     driver = neo4j.GraphDatabase.driver(neo4j_uri, auth=(neo4j_username, neo4j_password))
 
-    for schema in ["employees", "hr_survey"]:
+    schemas = ["employees", "hr_survey", "payroll","recruitment","training","benefits","assets","compliance","timekeeping","org","projects","expenses","performance","leave_mgmt","vendors","skills","documents","onboarding","announcements"]
+    for schema in schemas:
         load_schema(conn, driver, schema)
 
     conn.close()

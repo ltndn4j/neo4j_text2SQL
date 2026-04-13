@@ -63,7 +63,7 @@ def create_semantic_tools(driver: neo4j.Driver):
             // Path 2: Foreign Key Chain
             OPTIONAL MATCH (col)-[:HAS_FOREIGN_KEY|ON_COLUMN]-()-[:HAS_FOREIGN_KEY|ON_COLUMN]-(fkCol:Column)
 
-            WITH table_name, column_name, col, collect(DISTINCT refCol) + collect(DISTINCT fkCol) AS linkedColumns
+            WITH table_name, column_name, col, collect(DISTINCT refCol) + collect(DISTINCT fkCol) AS linkedColumns, table.comment as table_comment
             UNWIND linkedColumns AS linkedColumn
             MATCH (d:Database)-[:CONTAINS_SCHEMA]->(s:Schema)-[:CONTAINS_TABLE]->(table:Table {name:table_name})
             MATCH (schemaLinkedCol:Schema)-->(:Table)-->(linkedColumn)
@@ -71,6 +71,7 @@ def create_semantic_tools(driver: neo4j.Driver):
             d.name as database,
             s.name as schema,
             table_name,
+            table_comment,
             [(t:Term)-[:DEFINED]->(:Table {name:table_name}) | t.name + ": " + t.definition] as table_description,
             collect(DISTINCT {
             source:{schema:s.name, table:col.tableName, column:col.name},
@@ -85,6 +86,7 @@ def create_semantic_tools(driver: neo4j.Driver):
             database:database,
             schema:schema,
             table_name:table_name,
+            table_comment: table_comment,
             table_description:table_description,
             table_joins:table_joins,
             columns:columns

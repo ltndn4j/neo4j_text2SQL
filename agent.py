@@ -1,4 +1,6 @@
 import os
+import json
+from langchain_core.callbacks import UsageMetadataCallbackHandler
 
 import tools.postgresql as db
 from tools.semanticLayer import get_neo4j_driver, create_semantic_tools
@@ -26,7 +28,7 @@ Rules:
 * Don't display the SQL query to the user, only the results of the query execution
 """
 
-def build_executor():
+def build_executor(cb):
     # Neo4j
     neo4j_config = getInstanceId(PROJECT_ID, NEO4J_INSTANCE)
     uri = neo4j_config["neo4j_uri"]
@@ -38,7 +40,9 @@ def build_executor():
     db_conn = db.get_db_connect()
     
     tools = db.create_db_tools(db_conn) + create_semantic_tools(driver) + create_dummy_tools()
-    llm = ChatOpenAI(model="gpt-5-mini", temperature=0)
+    
+    llm = ChatOpenAI(model="gpt-5-mini", temperature=0, callbacks=[cb])
+
     prompt = ChatPromptTemplate.from_messages(
         [
             ("system", SYSTEM_PROMPT),
@@ -58,11 +62,29 @@ def build_executor():
     )
 
 def main():
-    executor, driver = build_executor()
+    cb = UsageMetadataCallbackHandler()
+    executor, driver = build_executor(cb)
     try:
-        question = input("Question: ").strip()
-        result = executor.invoke({"input": question})
-        print(result.get("output", result))
+        #question = input("Question: ").strip()
+        questions = [
+            "How many employees are there in the company ?",
+            "What is the average salary and the related satifaction on the compensation for man and woman in the company ?",
+        ]
+        last_total_tokens = 0
+        last_input_tokens = 0
+        for question in questions:
+            print(f"\033[94mQuestion: {question}\033[0m")
+            result = executor.invoke({"input": question})
+            print("\n" + result.get("output", result))
+            modelName = list(cb.usage_metadata.keys())[0]
+            print(f"\033[94mModel used: {modelName}\033[0m")
+            total_tokens = cb.usage_metadata[modelName]["total_tokens"]
+            input_tokens = cb.usage_metadata[modelName]["input_tokens"]
+            print(f"\033[94mTotal tokens: {total_tokens - last_total_tokens}\033[0m")
+            print(f"\033[93mInput tokens: {input_tokens - last_input_tokens}\033[0m")
+            last_total_tokens = total_tokens
+            last_input_tokens = input_tokens
+
     finally:
         driver.close()
 
