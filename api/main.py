@@ -42,8 +42,14 @@ def _serialize_usage(cb: UsageMetadataCallbackHandler):
         return None
 
 def _serialize_sql_query(steps: list):
-    toolAction_SQL = [action for (action, result) in steps if action.tool == "run_sql"][0]
-    return toolAction_SQL.tool_input.get('query')
+    toolAction_SQL = [action for (action, result) in steps if action.tool == "run_sql"]
+    if len(toolAction_SQL) > 0:
+        return toolAction_SQL[0].tool_input.get('query')
+    return None
+
+def _serialize_tools(steps: list):
+    tools = [action.tool for (action, result) in steps]
+    return tools
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -72,6 +78,7 @@ class ChatResponse(BaseModel):
     answer: str
     usage: Optional[dict] = None
     sql_query: Optional[str] = None
+    tools: Optional[list] = None
 
 
 @app.get("/health")
@@ -95,4 +102,9 @@ async def chat(body: ChatRequest):
     out = result.get("output", result)
     steps = result.get("intermediate_steps")
     answer = out if isinstance(out, str) else str(out)    
-    return ChatResponse(answer=answer, usage=_serialize_usage(cb), sql_query=_serialize_sql_query(steps))
+    return ChatResponse(
+        answer=answer,
+        usage=_serialize_usage(cb), 
+        sql_query=_serialize_sql_query(steps), 
+        tools=_serialize_tools(steps)
+    )

@@ -67,7 +67,6 @@ def main():
     cb = UsageMetadataCallbackHandler()
     executor, driver, db_conn = build_executor(cb)
     try:
-        #question = input("Question: ").strip()
         questions = [
             "How many employees are there in the company ?",
             "What is the average salary and the related satifaction on the compensation for man and woman in the company ?",
@@ -78,6 +77,8 @@ def main():
             print(f"\033[94m\nQuestion: {question}\033[0m")
             result = executor.invoke({"input": question})
             steps = result.get("intermediate_steps")
+            tools = [action.tool for (action, result) in steps]
+            tools = " -> ".join(tools)
             toolAction_SQL = [action for (action, result) in steps if action.tool == "run_sql"][0]
             sqlQuery = toolAction_SQL.tool_input.get('query')
             print(result.get("output", result))
@@ -87,6 +88,7 @@ def main():
             input_tokens = cb.usage_metadata[modelName]["input_tokens"]
             print(f"\033[94mTotal tokens: {total_tokens - last_total_tokens}\033[0m")
             print(f"\033[93mInput tokens: {input_tokens - last_input_tokens}\033[0m")
+            print(f"\033[94mTools used: {tools}\033[0m")
             print(f"SQL Query used: \n\033[92m{sqlQuery}\033[0m")
             last_total_tokens = total_tokens
             last_input_tokens = input_tokens

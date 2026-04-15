@@ -28,7 +28,39 @@ def _queue_suggestion(suggestion: str) -> None:
 
 
 st.set_page_config(page_title="Text2SQL", page_icon="💬")
-st.title("Neo4j Semantic Layer")
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "suppress_example_buttons" not in st.session_state:
+    st.session_state.suppress_example_buttons = False
+if "show_usage" not in st.session_state:
+    st.session_state.show_usage = True
+if "show_sql_query" not in st.session_state:
+    st.session_state.show_sql_query = True
+if "show_tools" not in st.session_state:
+    st.session_state.show_tools = False
+
+_title_col, _settings_col = st.columns([12, 1], gap="small")
+with _title_col:
+    st.title("Neo4j Semantic Layer")
+with _settings_col:
+    with st.popover("⚙️", help="Display settings"):
+        st.markdown("**Show under assistant messages**")
+        st.session_state.show_usage = st.toggle(
+            "Usage",
+            value=st.session_state.show_usage,
+            help="Token usage and model metadata from the agent run.",
+        )
+        st.session_state.show_sql_query = st.toggle(
+            "SQL query",
+            value=st.session_state.show_sql_query,
+            help="The SQL returned by the agent when it called the database tool.",
+        )
+        st.session_state.show_tools = st.toggle(
+            "Tools",
+            value=st.session_state.show_tools,
+            help="Which tools the agent invoked for that answer.",
+        )
 
 api_base = os.environ.get("API_BASE", "http://127.0.0.1:8000").rstrip("/")
 try:
@@ -37,20 +69,18 @@ try:
 except (FileNotFoundError, KeyError, TypeError, RuntimeError):
     pass
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "suppress_example_buttons" not in st.session_state:
-    st.session_state.suppress_example_buttons = False
-
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
-        if msg.get("usage"):
+        if st.session_state.show_usage and msg.get("usage"):
             with st.expander("Usage"):
                 st.json(msg["usage"])
-        if msg.get("sql_query"):
+        if st.session_state.show_sql_query and msg.get("sql_query"):
             with st.expander("SQL Query"):
                 st.code(msg["sql_query"])
+        if st.session_state.show_tools and msg.get("tools"):
+            with st.expander("Tools"):
+                st.json(msg["tools"])
 
 chat_input = st.chat_input("Ask about the employee dataset")
 pending_prompt = st.session_state.pop("pending_prompt", None)
@@ -70,6 +100,7 @@ if prompt:
         answer_text = ""
         usage_data = None
         sql_query = None
+        tools = None
         with st.chat_message("assistant"):
             try:
                 with st.spinner("Waiting for the agent…"):
@@ -80,6 +111,7 @@ if prompt:
                 answer_text = data.get("answer") or ""
                 usage_data = data.get("usage")
                 sql_query = data.get("sql_query")
+                tools = data.get("tools")
             except httpx.HTTPStatusError:
                 st.error(
                     "The API returned an error. Check server logs and try again."
@@ -91,12 +123,15 @@ if prompt:
                 )
             if answer_text:
                 st.markdown(answer_text)
-            if usage_data:
+            if st.session_state.show_usage and usage_data:
                 with st.expander("Usage"):
                     st.json(usage_data)
-            if sql_query:
+            if st.session_state.show_sql_query and sql_query:
                 with st.expander("SQL Query"):
                     st.code(sql_query)
+            if st.session_state.show_tools and tools:
+                with st.expander("Tools"):
+                    st.json(tools)
 
         st.session_state.messages.append(
             {
@@ -104,6 +139,7 @@ if prompt:
                 "content": answer_text or "_No response._",
                 "usage": usage_data,
                 "sql_query": sql_query or "",
+                "tools": tools or [],
             }
         )
     finally:
