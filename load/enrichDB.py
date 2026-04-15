@@ -26,10 +26,27 @@ def main():
             )
             cur.execute(
                 """
-                UPDATE employees.employee
-                SET email = LOWER(first_name) || '.' || LOWER(last_name) || %s
-                WHERE first_name IS NOT NULL
-                  AND last_name IS NOT NULL;
+                WITH RankedUsers AS (
+                    SELECT 
+                        id,
+                        first_name,
+                        last_name,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY LOWER(first_name), LOWER(last_name) 
+                            ORDER BY id
+                        ) as name_rank
+                    FROM employees.employee
+                )
+                UPDATE employees.employee e
+                SET email = LOWER(
+                    RankedUsers.first_name || '.' || RankedUsers.last_name || 
+                    CASE 
+                        WHEN RankedUsers.name_rank > 1 THEN '-' || RankedUsers.name_rank
+                        ELSE '' 
+                    END || %s
+                )
+                FROM RankedUsers
+                WHERE e.id = RankedUsers.id;                
                 """,
                 (DOMAIN,),
             )

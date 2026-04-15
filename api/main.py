@@ -20,9 +20,18 @@ from starlette.concurrency import run_in_threadpool
 
 import tools.postgresql as db
 from agent import NEO4J_INSTANCE, PROJECT_ID, create_executor
+from yaml_LLM import run_yaml_llm_question
 from aura.setupAura import getInstanceId
 from tools.semanticLayer import get_neo4j_driver
 
+
+def _db_conn_ok(conn) -> bool:
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+        return True
+    except Exception:
+        return False
 
 def _serialize_usage(cb: UsageMetadataCallbackHandler):
     raw = getattr(cb, "usage_metadata", None) or {}
@@ -32,6 +41,7 @@ def _serialize_usage(cb: UsageMetadataCallbackHandler):
         usage_data =  json.loads(json.dumps(raw, default=str))
         usage_info = {}
         modelName = list(usage_data.keys())[0]
+        usage_info["backend"] = "Neo4j Semantic Layer"
         usage_info["model"] = modelName
         usage_info["input_tokens"] = usage_data[modelName]["input_tokens"]
         usage_info["output_tokens"] = usage_data[modelName]["output_tokens"]
@@ -107,4 +117,26 @@ async def chat(body: ChatRequest):
         usage=_serialize_usage(cb), 
         sql_query=_serialize_sql_query(steps), 
         tools=_serialize_tools(steps)
+    )
+
+@app.post("/yaml-llm", response_model=ChatResponse)
+async def yaml_llm(body: ChatRequest):
+    if not await run_in_threadpool(_db_conn_ok, app.state.db_conn):
+        print("The database connection is unavailable. RESTARTING CONNECTION.")
+        app.state.db_conn = db.get_db_connect()
+    try:
+        out = await run_in_threadpool(
+            lambda: run_yaml_llm_question(
+                body.message.strip(), conn=app.state.db_conn
+            ),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="The yaml LLM pipeline could not complete this request.",
+        ) from None
+    return ChatResponse(
+        answer=out["answer"],
+        usage=out.get("usage"),
+        sql_query=out.get("sql_query"),
     )
