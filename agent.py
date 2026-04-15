@@ -28,21 +28,15 @@ Rules:
 * Don't display the SQL query to the user, only the results of the query execution
 """
 
-def build_executor(cb):
-    # Neo4j
-    neo4j_config = getInstanceId(PROJECT_ID, NEO4J_INSTANCE)
-    uri = neo4j_config["neo4j_uri"]
-    user = neo4j_config["neo4j_username"]
-    password = neo4j_config["neo4j_password"] or os.getenv("neo4j_password")
-    driver = get_neo4j_driver(uri, user, password)
-    
-    # Database
-    db_conn = db.get_db_connect()
-    
-    tools = db.create_db_tools(db_conn) + create_semantic_tools(driver) + create_dummy_tools()
-    
-    llm = ChatOpenAI(model="gpt-5-mini", temperature=0, callbacks=[cb])
-
+def create_executor(driver, db_conn, usage_callback):
+    tools = (
+        db.create_db_tools(db_conn)
+        + create_semantic_tools(driver)
+        + create_dummy_tools()
+    )
+    llm = ChatOpenAI(
+        model="gpt-5-mini", temperature=0, callbacks=[usage_callback]
+    )
     prompt = ChatPromptTemplate.from_messages(
         [
             ("system", SYSTEM_PROMPT),
@@ -51,19 +45,27 @@ def build_executor(cb):
         ]
     )
     agent = create_tool_calling_agent(llm, tools, prompt)
-    return (
-        AgentExecutor(
-            agent=agent,
-            tools=tools,
-            verbose=True,
-            handle_parsing_errors=True,
-        ),
-        driver,
+    return AgentExecutor(
+        agent=agent,
+        tools=tools,
+        verbose=False,
+        handle_parsing_errors=True,
+        return_intermediate_steps=True,
     )
+
+
+def build_executor(cb):
+    neo4j_config = getInstanceId(PROJECT_ID, NEO4J_INSTANCE)
+    uri = neo4j_config["neo4j_uri"]
+    user = neo4j_config["neo4j_username"]
+    password = neo4j_config["neo4j_password"] or os.getenv("neo4j_password")
+    driver = get_neo4j_driver(uri, user, password)
+    db_conn = db.get_db_connect()
+    return create_executor(driver, db_conn, cb), driver, db_conn
 
 def main():
     cb = UsageMetadataCallbackHandler()
-    executor, driver = build_executor(cb)
+    executor, driver, db_conn = build_executor(cb)
     try:
         #question = input("Question: ").strip()
         questions = [
@@ -73,20 +75,25 @@ def main():
         last_total_tokens = 0
         last_input_tokens = 0
         for question in questions:
-            print(f"\033[94mQuestion: {question}\033[0m")
+            print(f"\033[94m\nQuestion: {question}\033[0m")
             result = executor.invoke({"input": question})
-            print("\n" + result.get("output", result))
+            steps = result.get("intermediate_steps")
+            toolAction_SQL = [action for (action, result) in steps if action.tool == "run_sql"][0]
+            sqlQuery = toolAction_SQL.tool_input.get('query')
+            print(result.get("output", result))
             modelName = list(cb.usage_metadata.keys())[0]
             print(f"\033[94mModel used: {modelName}\033[0m")
             total_tokens = cb.usage_metadata[modelName]["total_tokens"]
             input_tokens = cb.usage_metadata[modelName]["input_tokens"]
             print(f"\033[94mTotal tokens: {total_tokens - last_total_tokens}\033[0m")
             print(f"\033[93mInput tokens: {input_tokens - last_input_tokens}\033[0m")
+            print(f"SQL Query used: \n\033[92m{sqlQuery}\033[0m")
             last_total_tokens = total_tokens
             last_input_tokens = input_tokens
 
     finally:
         driver.close()
+        db_conn.close()
 
 if __name__ == "__main__":
     main()
