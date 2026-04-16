@@ -8,24 +8,91 @@ Start the API first, for example:
     uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
 """
 
-from __future__ import annotations
-
 import os
-
 import httpx
 import streamlit as st
 
-# Same examples as agent.py main()
+AVATAR = {
+    "user":None,
+    "yaml_llm":"✨", 
+    "yaml_agent":"./icon/ai-assistant.png", 
+    "agent":"./icon/Neo4j-icon-color.png"
+} 
+
+# Curated example questions with reference SQL (expected answer query).
 QUESTION_SUGGESTIONS = [
-    "How many employees are there in the company ?",
-    "What is the average salary and its related satisfaction for man and woman ?",
-    "What is the average salary satisfaction and its related average amount for those who answered for man and woman ?",
+    {
+        "question": "How many employees are there in the company ?",
+        "reference_sql": "SELECT COUNT(*) AS employee_count FROM employees.employee;",
+    },
+    {
+        "question": "What is the average salary and its related satisfaction for man and woman ?",
+        "reference_sql": """SELECT e.gender,
+  count(ss.employee_email) as survey_answer,
+  count(e.id) as employee_count,
+  AVG(s.amount) AS average_salary,
+  AVG(ss.payroll_score) AS average_satisfaction
+FROM employees.employee e
+JOIN employees.salary s ON s.employee_id = e.id  AND s.from_date <= DATE '2026-04-15' AND s.to_date > DATE '2026-04-16'
+LEFT JOIN hr_survey.satisfaction_survey ss ON ss.employee_email = e.email
+GROUP BY e.gender""",
+    },
+    {
+        "question": "What is the most common first name on each role ?",
+        "reference_sql": """WITH RankedEmployees AS (
+    SELECT 
+        t.title, 
+        e.first_name, 
+        COUNT(e.id) AS nbre,
+        ROW_NUMBER() OVER(PARTITION BY t.title ORDER BY COUNT(e.id) DESC) as rank_id
+    FROM employees.employee e
+    JOIN employees.title t ON t.employee_id = e.id
+    WHERE t.to_date = DATE '9999-01-01'
+    GROUP BY t.title, e.first_name
+)
+SELECT title, first_name, nbre
+FROM RankedEmployees
+WHERE rank_id = 1
+ORDER BY title;
+"""
+    }
 ]
 
 
-def _queue_suggestion(suggestion: str) -> None:
-    st.session_state.pending_prompt = suggestion
+def request_answer_sql_validation(
+    client: httpx.Client,
+    api_base: str,
+    reference_sql: str,
+    generated_sql: str,
+) -> dict:
+    """
+    Call POST ``{api_base}/validate-sql-answer`` with the reference and generated SQL.
+
+    The FastAPI route is not implemented yet; this will raise until the server adds it.
+    """
+    base = api_base.rstrip("/")
+    response = client.post(
+        f"{base}/validate-sql-answer",
+        json={"reference_sql": reference_sql, "generated_sql": generated_sql},
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def _queue_suggestion(question: str, reference_sql: str) -> None:
+    st.session_state.pending_prompt = question
+    st.session_state.pending_reference_sql = reference_sql
     st.session_state.suppress_example_buttons = True
+
+
+def _accuracy_answer_icon(average_accuracy: float) -> str:
+    if average_accuracy >= 0.97:
+        return "🟢"
+    if average_accuracy >= 0.95:
+        return "🟡"
+    if average_accuracy >= 0.9:
+        return "🟠"
+    return "🔴"
 
 
 st.set_page_config(page_title="Text2SQL", page_icon="💬")
@@ -36,8 +103,10 @@ if "suppress_example_buttons" not in st.session_state:
     st.session_state.suppress_example_buttons = False
 if "show_usage" not in st.session_state:
     st.session_state.show_usage = True
+if "answer_validation" not in st.session_state:
+    st.session_state.answer_validation = True    
 if "show_sql_query" not in st.session_state:
-    st.session_state.show_sql_query = True
+    st.session_state.show_sql_query = False
 if "show_tools" not in st.session_state:
     st.session_state.show_tools = False
 
@@ -47,6 +116,11 @@ with _title_col:
 with _settings_col:
     with st.popover("⚙️", help="Display settings"):
         st.markdown("**Show under assistant messages**")
+        st.session_state.answer_validation = st.toggle(
+            "Check Answer accuracy",
+            value=st.session_state.answer_validation,
+            help="For curated example questions, compare the generated answer to the reference",
+        )
         st.session_state.show_usage = st.toggle(
             "Usage",
             value=st.session_state.show_usage,
@@ -64,11 +138,11 @@ with _settings_col:
         )
         api_mode = st.radio(
             "Backend",
-            options=["agent", "yaml_agent", "yaml_llm"],
+            options=["yaml_llm", "yaml_agent", "agent"],
             format_func=lambda x: (
                 "Neo4j agent" if x == "agent" else "YAML agent" if x == "yaml_agent" else "LLM+YAML Grounding"
             ),
-            help="Agent uses the Neo4j semantic layer; YAML LLM uses the schema-backed Text2SQL pipeline.",
+            help="Neo4j Agent uses the Neo4j semantic layer; YAML agent & LLM uses the schema-backed Text2SQL agent/pipeline.",
             key="api_mode",
         )
 
@@ -81,6 +155,7 @@ except (FileNotFoundError, KeyError, TypeError, RuntimeError):
 
 chat_input = st.chat_input("Ask about the employee dataset")
 pending_prompt = st.session_state.pop("pending_prompt", None)
+pending_reference_sql = st.session_state.pop("pending_reference_sql", None)
 prompt = pending_prompt or chat_input
 from_example_question = pending_prompt is not None
 
@@ -88,10 +163,10 @@ from_example_question = pending_prompt is not None
 _MESSAGES_HEIGHT_PX = 600
 with st.container(height=_MESSAGES_HEIGHT_PX):
     for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
+        with st.chat_message(msg["role"],avatar=AVATAR[msg["role"]]):
             st.markdown(msg["content"])
             if st.session_state.show_usage and msg.get("usage"):
-                with st.expander("Usage"):
+                with st.expander(f"Usage &nbsp; ({msg["usage"]["total_tokens"]} tokens)"):
                     st.json(msg["usage"])
             if st.session_state.show_sql_query and msg.get("sql_query"):
                 with st.expander("SQL Query"):
@@ -99,6 +174,9 @@ with st.container(height=_MESSAGES_HEIGHT_PX):
             if st.session_state.show_tools and msg.get("tools"):
                 with st.expander("Tools"):
                     st.json(msg["tools"])
+            if msg.get("sql_validation") is not None:
+                with st.expander(f"Accuracy &nbsp; {msg['accuracy_icon']}"):
+                    st.json(msg["sql_validation"])
 
     if prompt:
         if from_example_question or st.session_state.suppress_example_buttons:
@@ -107,14 +185,15 @@ with st.container(height=_MESSAGES_HEIGHT_PX):
                 prev_footer.empty()
         try:
             st.session_state.messages.append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
+            with st.chat_message("user",avatar=AVATAR["user"]):
                 st.markdown(prompt)
 
             answer_text = ""
             usage_data = None
             sql_query = None
             tools = None
-            with st.chat_message("assistant"):
+            sql_validation = None
+            with st.chat_message("assistant",avatar=AVATAR[api_mode]):
                 try:
                     endpoint = "/chat" if api_mode == "agent" or api_mode == "yaml_agent" else "/yaml-llm"
                     spinner_label = (
@@ -124,15 +203,62 @@ with st.container(height=_MESSAGES_HEIGHT_PX):
                     )
                     with st.spinner(spinner_label):
                         with httpx.Client(timeout=300.0) as client:
-                            r = client.post(
-                                f"{api_base}{endpoint}", json={"message": prompt, "yaml_agent": api_mode == "yaml_agent"}
-                            )
+                            chat_json = {
+                                "message": prompt,
+                                "yaml_agent": api_mode == "yaml_agent",
+                            }
+                            if api_mode == "yaml_agent":
+                                chat_json["fast_sql_first"] = True
+                            r = client.post(f"{api_base}{endpoint}", json=chat_json)
                     r.raise_for_status()
                     data = r.json()
+                    with_error = data.get("with_error")
                     answer_text = data.get("answer") or ""
                     usage_data = data.get("usage")
                     sql_query = data.get("sql_query")
                     tools = data.get("tools")
+                    icon = ""
+
+                    if answer_text:
+                        answer_md_slot = st.empty()
+                        answer_md_slot.markdown(answer_text)
+                    if st.session_state.show_usage and usage_data:
+                        with st.expander(f"Usage &nbsp; ({usage_data['total_tokens']} tokens)"):
+                            st.json(usage_data)
+                    if st.session_state.show_sql_query and sql_query:
+                        with st.expander("SQL Query"):
+                            st.code(sql_query)
+                    if st.session_state.show_tools and tools:
+                        with st.expander("Tools"):
+                            st.json(tools)
+
+                    if (st.session_state.answer_validation and pending_reference_sql and sql_query):
+                        accuracy_details = {
+                            "summary": "",
+                            "average_accuracy": None,
+                            "accuracy": {}
+                        }
+                        with st.spinner("Validating answer accuracy..."):    
+                            try:
+                                with httpx.Client(timeout=300.0) as v_client:
+                                    sql_validation = request_answer_sql_validation(
+                                        v_client,
+                                        api_base,
+                                        pending_reference_sql,
+                                        sql_query,
+                                    )
+                                    accuracy_details["summary"] = sql_validation["summary"]
+                                    accuracy_details["average_accuracy"] = sql_validation["average_accuracy"]
+                                    accuracy_details["accuracy"] = sql_validation["accuracy"]
+                                    icon = _accuracy_answer_icon(float(accuracy_details["average_accuracy"]))
+                            except httpx.HTTPStatusError as exc:
+                                accuracy_details["summary"] = "Error: " + str(exc)
+                                icon = "🔴"
+                            except httpx.RequestError as exc:
+                                accuracy_details["summary"] = "Error: " + str(exc)
+                                icon = "🔴"
+                            with st.expander(f"Accuracy &nbsp; {icon}"):
+                                st.json(accuracy_details)
                 except httpx.HTTPStatusError:
                     st.error(
                         "The API returned an error. Check server logs and try again."
@@ -142,25 +268,16 @@ with st.container(height=_MESSAGES_HEIGHT_PX):
                         f"Could not reach the API at {api_base}. "
                         "Start the FastAPI server, then retry."
                     )
-                if answer_text:
-                    st.markdown(answer_text)
-                if st.session_state.show_usage and usage_data:
-                    with st.expander("Usage"):
-                        st.json(usage_data)
-                if st.session_state.show_sql_query and sql_query:
-                    with st.expander("SQL Query"):
-                        st.code(sql_query)
-                if st.session_state.show_tools and tools:
-                    with st.expander("Tools"):
-                        st.json(tools)
 
             st.session_state.messages.append(
                 {
-                    "role": "assistant",
+                    "role": api_mode,
                     "content": answer_text or "_No response._",
                     "usage": usage_data,
                     "sql_query": sql_query or "",
                     "tools": tools or [],
+                    "sql_validation": sql_validation,
+                    "accuracy_icon": icon,
                 }
             )
         finally:
@@ -172,11 +289,11 @@ with st.container(height=_MESSAGES_HEIGHT_PX):
     else:
         with suggestions_slot.container():
             st.caption("Example questions")
-            for i, suggestion in enumerate(QUESTION_SUGGESTIONS):
+            for i, item in enumerate(QUESTION_SUGGESTIONS):
                 st.button(
-                    suggestion,
+                    item["question"],
                     key=f"example_q_{i}",
                     use_container_width=True,
                     on_click=_queue_suggestion,
-                    args=(suggestion,),
+                    args=(item["question"], item["reference_sql"]),
                 )

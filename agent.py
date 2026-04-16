@@ -23,10 +23,10 @@ NEO4J_INSTANCE = "text2sql-instance"
 SYSTEM_PROMPT = """You are a Text2SQL agent and are tasked with answering questions about our dataset on employees. 
 Use the metadata to collect relevant schema to inform your SQL queries.
 Rules:
+* Return result to the user in a readable format in plain text
 * Don't ask for clarification, use the metadata and query the database to answer the question
 * Always ensure that tables are qualified with project and dataset names
 * Always ensure you have the appropriate schema from the Metadata before write a query
-* Return query results to the user in a readable format
 * Don't display the SQL query to the user, only the results of the query execution
 """
 
@@ -34,10 +34,9 @@ def create_executor(driver, db_conn, usage_callback, yaml_agent=False):
     tools = (
         db.create_db_tools(db_conn)
         + (create_static_context_tools() if yaml_agent else create_semantic_tools(driver))
-        + create_dummy_tools()
     )
     llm = ChatOpenAI(
-        model="gpt-5-mini", temperature=0, callbacks=[usage_callback]
+        model="gpt-5.4-mini", temperature=0, callbacks=[usage_callback], reasoning={"effort": "low"}
     )
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -51,7 +50,7 @@ def create_executor(driver, db_conn, usage_callback, yaml_agent=False):
         agent=agent,
         tools=tools,
         verbose=False,
-        handle_parsing_errors=True,
+        handle_parsing_errors=False,
         return_intermediate_steps=True,
     )
 
@@ -81,7 +80,7 @@ def main():
             steps = result.get("intermediate_steps")
             tools = [action.tool for (action, result) in steps]
             tools = " -> ".join(tools)
-            toolAction_SQL = [action for (action, result) in steps if action.tool == "run_sql"][0]
+            toolAction_SQL = [action for (action, result) in steps if action.tool == "run_sql"][-1]
             sqlQuery = toolAction_SQL.tool_input.get('query')
             print(result.get("output", result))
             modelName = list(cb.usage_metadata.keys())[0]

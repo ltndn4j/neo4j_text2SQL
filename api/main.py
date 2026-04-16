@@ -20,7 +20,7 @@ from starlette.concurrency import run_in_threadpool
 
 import tools.postgresql as db
 from agent import NEO4J_INSTANCE, PROJECT_ID, create_executor
-from yaml_LLM import run_yaml_llm_question
+from LLM import run_yaml_llm_question, compare_answer_accuracy
 from aura.setupAura import getInstanceId
 from tools.semanticLayer import get_neo4j_driver
 
@@ -54,13 +54,24 @@ def _serialize_usage(cb: UsageMetadataCallbackHandler, is_yaml_agent: bool = Fal
 def _serialize_sql_query(steps: list):
     toolAction_SQL = [action for (action, result) in steps if action.tool == "run_sql"]
     if len(toolAction_SQL) > 0:
-        return toolAction_SQL[0].tool_input.get('query')
+        return toolAction_SQL[-1].tool_input.get('query')
     return None
 
 def _serialize_tools(steps: list):
     tools = [action.tool for (action, result) in steps]
     return tools
 
+def clean_answer(out: str):
+    value = out
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        value = out[0]
+    if isinstance(value, dict):
+        if "text" in value:
+            return value["text"]
+    return str(value)
+    
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_dotenv(override=True)
@@ -90,10 +101,20 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     answer: str
+    with_error: bool = False
     usage: Optional[dict] = None
     sql_query: Optional[str] = None
     tools: Optional[list] = None
 
+
+class ValidateSQLAnswerRequest(BaseModel):
+    reference_sql: str
+    generated_sql: str
+
+class ValidateSQLAnswerResponse(BaseModel):
+    summary: str
+    average_accuracy: float
+    accuracy: dict
 
 @app.get("/health")
 def health():
@@ -120,7 +141,7 @@ async def chat(body: ChatRequest):
         ) from None
     out = result.get("output", result)
     steps = result.get("intermediate_steps")
-    answer = out if isinstance(out, str) else str(out)    
+    answer = clean_answer(out)
     return ChatResponse(
         answer=answer,
         usage=_serialize_usage(cb, body.yaml_agent), 
@@ -145,7 +166,17 @@ async def yaml_llm(body: ChatRequest):
             detail="The yaml LLM pipeline could not complete this request.",
         ) from None
     return ChatResponse(
+        with_error=out["with_error"],
         answer=out["answer"],
         usage=out.get("usage"),
         sql_query=out.get("sql_query"),
+    )
+
+@app.post("/validate-sql-answer", response_model=ValidateSQLAnswerResponse)
+async def validate_sql_answer(body: ValidateSQLAnswerRequest):
+    result = compare_answer_accuracy(app.state.db_conn, body.reference_sql, body.generated_sql)
+    return ValidateSQLAnswerResponse(
+        summary=result["summary"],
+        average_accuracy=result["average_accuracy"],
+        accuracy=result["accuracy"],
     )

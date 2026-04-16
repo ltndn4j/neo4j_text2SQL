@@ -1,5 +1,4 @@
 import json
-import os
 import pandas as pd
 from dotenv import load_dotenv
 from neo4j_graphrag.llm import OpenAILLM
@@ -42,7 +41,30 @@ You are a data analyst agent and are tasked with answering questions based on th
 {data}
 """
 
-MODEL_NAME = "gpt-5-mini"
+PROMPT_VALIDATION = f"""
+# Identity
+You are a data analyst agent and are tasked with comparing the differences between 2 datasets
+
+# Rules:
+* Return the answer in a readable format
+* Don't make up data, only use the data provided
+* Only take into account the columns that are present in both datasets
+* Match the result columns name between the 2 datasets using the most similar title or sql column name from the SQL query.
+* Only compare the values, not the titles or the order of the columns
+* In the accuracy object, the key is the column name and the value is the accuracy between the reference and the generated value using the formula: (1 - (abs(reference - generated) / reference))
+* For gender values, M matches man or men, F matches woman or women
+
+# Output format
+You must return the result in a JSON object with the following format:
+{{
+    "summary": "The summary of the differences between the 2 datasets",
+    "average_accuracy": 0.95,
+    "accuracy": {{"column1": 0.8, "column2": 0.9, "column3": 0.7}}
+}}
+"""
+
+MODEL_NAME = "gpt-5.4-mini"
+REASONING_EFFORT = "low"
 
 llm = OpenAILLM(
     model_name=MODEL_NAME,
@@ -81,7 +103,7 @@ def run_yaml_llm_question(
             },
         ],
         text={"format": {"type": "json_object"}},
-        reasoning={},
+        reasoning={"effort": REASONING_EFFORT},
         tools=[],
         store=False,
     )
@@ -118,6 +140,7 @@ def run_yaml_llm_question(
         }
 
     with conn.cursor() as cur:
+        failed = False
         try:
             cur.execute(query)
             if cur.description is None:
@@ -165,12 +188,14 @@ def run_yaml_llm_question(
                     + response_with_data.usage.total_tokens
                 )
         except Exception as e:
+            failed = True
             output_text = f"Error: {e}"
             input_tokens = response.usage.input_tokens
             output_tokens = response.usage.output_tokens
             total_tokens = response.usage.total_tokens
 
     return {
+        "with_error": failed,
         "answer": output_text,
         "sql_query": query,
         "reasoning": reasoning if isinstance(reasoning, str) else None,
@@ -182,6 +207,51 @@ def run_yaml_llm_question(
             "total_tokens": total_tokens,
         },
     }
+
+def compare_answer_accuracy(conn, reference_sql: str, generated_sql: str) -> dict:
+    with conn.cursor() as cur:
+        cur.execute(reference_sql)
+        ref_df = pd.DataFrame(cur.fetchall(), columns=[desc[0] for desc in cur.description])
+        ref_data = ref_df.to_markdown()
+        try:
+            cur.execute(generated_sql)
+            gen_df = pd.DataFrame(cur.fetchall(), columns=[desc[0] for desc in cur.description])
+            gen_data = gen_df.to_markdown()
+        except Exception as e:
+            gen_data = f"Error: {e}"
+    
+    prompt = f"""
+    #Reference data:
+    ## SQL Query
+    {reference_sql}
+    ## Result
+    {ref_data}
+    #Generated data
+    ## SQL Query
+    {generated_sql}
+    ## Result
+    {gen_data}"""
+
+    response = llm.client.responses.create(
+        model=MODEL_NAME,
+        input=[
+            {
+                "role": "developer",
+                "content": [
+                    {"type": "input_text", "text": PROMPT_VALIDATION}
+                ],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "input_text", "text": prompt}],
+            },
+        ],
+        text={"format": {"type": "json_object"}},
+        reasoning={"effort": REASONING_EFFORT},
+        tools=[],
+        store=False,
+    )
+    return json.loads(response.output_text)
 
 
 def main():
