@@ -61,6 +61,7 @@ def run_yaml_llm_question(
     *,
     conn,
     schema_text: str | None = None,
+    only_data: bool = False,
 ) -> dict:
     if schema_text is None:
         schema_text = _load_schema_text()
@@ -127,6 +128,8 @@ def run_yaml_llm_question(
             else:
                 rows = cur.fetchall()
                 df = pd.DataFrame(rows, columns=[desc[0] for desc in cur.description])
+                if only_data:
+                    return df
                 response_with_data = llm.client.responses.create(
                     model=MODEL_NAME,
                     input=[
@@ -200,5 +203,45 @@ def main():
     finally:
         conn.close()
 
+def test_yaml_llm_question():
+
+    question = "What is the average salary and its related satisfaction for man and woman ?"
+    sql_answer = """
+    SELECT e.gender,
+	   AVG(s.amount) AS average_salary,
+       AVG(ss.payroll_score) AS average_satisfaction
+    FROM employees.employee e
+    JOIN employees.salary s
+        ON s.employee_id = e.id 
+        AND s.from_date <= DATE '2026-04-15' AND s.to_date > DATE '2026-04-16'
+    LEFT JOIN hr_survey.satisfaction_survey ss
+        ON ss.employee_email = e.email
+    GROUP BY e.gender
+    """
+    conn = db.get_db_connect()
+    reference_answer = {"Men":{}, "Women":{}}
+    with conn.cursor() as cur:
+        cur.execute(sql_answer)
+        rows = cur.fetchall()
+        for row in rows:
+            if row[0] == "M":
+                reference_answer["Men"]["average_salary"] = row[1]
+                reference_answer["Men"]["average_satisfaction"] = row[2]
+            else:
+                reference_answer["Women"]["average_salary"] = row[1]
+                reference_answer["Women"]["average_satisfaction"] = row[2]
+    print("Reference answer:")
+    print(pd.DataFrame(rows, columns=[desc[0] for desc in cur.description]).to_markdown())
+    print("--------------------------------\n")
+    #Execute 10 times the query and get the average of the results
+    for i in range(10):
+        out = run_yaml_llm_question(question, conn=conn, only_data=True)
+        if type(out) == pd.DataFrame:
+            print(f"{out.to_markdown()}\n")
+        else:
+            print(f"{out["answer"]}")
+            conn = db.get_db_connect()
+
 if __name__ == "__main__":
     main()
+    #test_yaml_llm_question()

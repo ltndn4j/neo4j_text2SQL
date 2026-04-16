@@ -33,7 +33,7 @@ def _db_conn_ok(conn) -> bool:
     except Exception:
         return False
 
-def _serialize_usage(cb: UsageMetadataCallbackHandler):
+def _serialize_usage(cb: UsageMetadataCallbackHandler, is_yaml_agent: bool = False):
     raw = getattr(cb, "usage_metadata", None) or {}
     if not raw:
         return None
@@ -41,7 +41,7 @@ def _serialize_usage(cb: UsageMetadataCallbackHandler):
         usage_data =  json.loads(json.dumps(raw, default=str))
         usage_info = {}
         modelName = list(usage_data.keys())[0]
-        usage_info["backend"] = "Neo4j Semantic Layer"
+        usage_info["backend"] = "Neo4j Semantic Layer" if not is_yaml_agent else "YAML Agent"
         usage_info["model"] = modelName
         usage_info["input_tokens"] = usage_data[modelName]["input_tokens"]
         usage_info["output_tokens"] = usage_data[modelName]["output_tokens"]
@@ -82,6 +82,10 @@ app = FastAPI(title="neo4j_text2SQL API", lifespan=lifespan)
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1)
+    yaml_agent: bool = Field(
+        False,
+        description="If true, use static context tools instead of the Neo4j semantic layer.",
+    )
 
 
 class ChatResponse(BaseModel):
@@ -99,7 +103,12 @@ def health():
 @app.post("/chat", response_model=ChatResponse)
 async def chat(body: ChatRequest):
     cb = UsageMetadataCallbackHandler()
-    executor = create_executor(app.state.neo4j_driver, app.state.db_conn, cb)
+    executor = create_executor(
+        app.state.neo4j_driver,
+        app.state.db_conn,
+        cb,
+        yaml_agent=body.yaml_agent,
+    )
     try:
         result = await run_in_threadpool(
             executor.invoke, {"input": body.message.strip()}
@@ -114,7 +123,7 @@ async def chat(body: ChatRequest):
     answer = out if isinstance(out, str) else str(out)    
     return ChatResponse(
         answer=answer,
-        usage=_serialize_usage(cb), 
+        usage=_serialize_usage(cb, body.yaml_agent), 
         sql_query=_serialize_sql_query(steps), 
         tools=_serialize_tools(steps)
     )

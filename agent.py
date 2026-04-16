@@ -5,6 +5,7 @@ from langchain_core.callbacks import UsageMetadataCallbackHandler
 import tools.postgresql as db
 from tools.semanticLayer import get_neo4j_driver, create_semantic_tools
 from tools.dummyTool import create_dummy_tools
+from tools.staticContext import create_static_context_tools
 
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -20,18 +21,19 @@ PROJECT_ID = "875a99c2-d2e2-4bf6-8ddb-78dcc7d2fecc"
 NEO4J_INSTANCE = "text2sql-instance"
 
 SYSTEM_PROMPT = """You are a Text2SQL agent and are tasked with answering questions about our dataset on employees. 
-Use the metadata graph to collect relevant schema to inform your SQL queries.
+Use the metadata to collect relevant schema to inform your SQL queries.
 Rules:
+* Don't ask for clarification, use the metadata and query the database to answer the question
 * Always ensure that tables are qualified with project and dataset names
-* Always ensure you have the appropriate schema from the Metadata Graph before write a query
+* Always ensure you have the appropriate schema from the Metadata before write a query
 * Return query results to the user in a readable format
 * Don't display the SQL query to the user, only the results of the query execution
 """
 
-def create_executor(driver, db_conn, usage_callback):
+def create_executor(driver, db_conn, usage_callback, yaml_agent=False):
     tools = (
         db.create_db_tools(db_conn)
-        + create_semantic_tools(driver)
+        + (create_static_context_tools() if yaml_agent else create_semantic_tools(driver))
         + create_dummy_tools()
     )
     llm = ChatOpenAI(

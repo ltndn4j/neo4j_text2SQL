@@ -43,7 +43,7 @@ if "show_tools" not in st.session_state:
 
 _title_col, _settings_col = st.columns([12, 1], gap="small")
 with _title_col:
-    st.title("Neo4j Semantic Layer")
+    st.title("Talk to your HR data")
 with _settings_col:
     with st.popover("⚙️", help="Display settings"):
         st.markdown("**Show under assistant messages**")
@@ -64,9 +64,9 @@ with _settings_col:
         )
         api_mode = st.radio(
             "Backend",
-            options=["agent", "yaml_llm"],
+            options=["agent", "yaml_agent", "yaml_llm"],
             format_func=lambda x: (
-                "Neo4j agent" if x == "agent" else "LLM+YAML Grounding"
+                "Neo4j agent" if x == "agent" else "YAML agent" if x == "yaml_agent" else "LLM+YAML Grounding"
             ),
             help="Agent uses the Neo4j semantic layer; YAML LLM uses the schema-backed Text2SQL pipeline.",
             key="api_mode",
@@ -116,16 +116,16 @@ with st.container(height=_MESSAGES_HEIGHT_PX):
             tools = None
             with st.chat_message("assistant"):
                 try:
-                    endpoint = "/chat" if api_mode == "agent" else "/yaml-llm"
+                    endpoint = "/chat" if api_mode == "agent" or api_mode == "yaml_agent" else "/yaml-llm"
                     spinner_label = (
                         "Waiting for the agent…"
-                        if api_mode == "agent"
+                        if api_mode == "agent" or api_mode == "yaml_agent"
                         else "Waiting for YAML LLM…"
                     )
                     with st.spinner(spinner_label):
                         with httpx.Client(timeout=300.0) as client:
                             r = client.post(
-                                f"{api_base}{endpoint}", json={"message": prompt}
+                                f"{api_base}{endpoint}", json={"message": prompt, "yaml_agent": api_mode == "yaml_agent"}
                             )
                     r.raise_for_status()
                     data = r.json()
