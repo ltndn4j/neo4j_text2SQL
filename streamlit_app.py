@@ -86,11 +86,11 @@ def _queue_suggestion(question: str, reference_sql: str) -> None:
 
 
 def _accuracy_answer_icon(average_accuracy: float) -> str:
-    if average_accuracy >= 0.97:
-        return "🟢"
     if average_accuracy >= 0.95:
-        return "🟡"
+        return "🟢"
     if average_accuracy >= 0.9:
+        return "🟡"
+    if average_accuracy >= 0.85:
         return "🟠"
     return "🔴"
 
@@ -104,7 +104,9 @@ if "suppress_example_buttons" not in st.session_state:
 if "show_usage" not in st.session_state:
     st.session_state.show_usage = True
 if "answer_validation" not in st.session_state:
-    st.session_state.answer_validation = True    
+    st.session_state.answer_validation = True
+if "validation_loop_count" not in st.session_state:
+    st.session_state.validation_loop_count = 0
 if "show_sql_query" not in st.session_state:
     st.session_state.show_sql_query = False
 if "show_tools" not in st.session_state:
@@ -121,6 +123,15 @@ with _settings_col:
             value=st.session_state.answer_validation,
             help="For curated example questions, compare the generated answer to the reference",
         )
+        st.session_state.validation_loop_count = st.select_slider(
+            "Accuracy resample loops",
+            options=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 
+            value=int(st.session_state.validation_loop_count),
+            help="Re-run the backend this many times to get an average accuracy. Set to 0 to disable.",
+            disabled=not st.session_state.answer_validation
+        )
+        if st.session_state.validation_loop_count > 2:
+            st.warning("Many loops will take time.", icon="🚨")
         st.session_state.show_usage = st.toggle(
             "Usage",
             value=st.session_state.show_usage,
@@ -207,8 +218,6 @@ with st.container(height=_MESSAGES_HEIGHT_PX):
                                 "message": prompt,
                                 "yaml_agent": api_mode == "yaml_agent",
                             }
-                            if api_mode == "yaml_agent":
-                                chat_json["fast_sql_first"] = True
                             r = client.post(f"{api_base}{endpoint}", json=chat_json)
                     r.raise_for_status()
                     data = r.json()
@@ -231,44 +240,54 @@ with st.container(height=_MESSAGES_HEIGHT_PX):
                     if st.session_state.show_tools and tools:
                         with st.expander("Tools"):
                             st.json(tools)
+                    accuracy_details = {
+                        "summary": "",
+                        "accuracy": None,
+                        "accuracy_details": {}
+                    }
 
                     if (st.session_state.answer_validation and pending_reference_sql and sql_query):
-                        accuracy_details = {
-                            "summary": "",
-                            "average_accuracy": None,
-                            "accuracy": {}
-                        }
-                        with st.spinner("Validating answer accuracy..."):
-                            try:
-                                with httpx.Client(timeout=300.0) as v_client:
-                                    sql_validation = request_answer_sql_validation(
-                                        v_client,
-                                        api_base,
-                                        pending_reference_sql,
-                                        sql_query,
-                                    )
-                                    accuracy_details["summary"] = sql_validation["summary"]
-                                    accuracy_details["average_accuracy"] = sql_validation["average_accuracy"]
-                                    accuracy_details["accuracy"] = sql_validation["accuracy"]
-                                    icon = _accuracy_answer_icon(float(accuracy_details["average_accuracy"]))
-                            except httpx.HTTPStatusError as exc:
-                                accuracy_details["summary"] = "Error: " + str(exc)
-                                icon = "🔴"
-                            except httpx.RequestError as exc:
-                                accuracy_details["summary"] = "Error: " + str(exc)
-                                icon = "🔴"
+                        import time
+                        start_time = time.time()
+                        progress_text = "Validating answer accuracy..."
+                        total_steps = (int(st.session_state.validation_loop_count)+1)*2
+                        my_bar = st.progress(1/total_steps, text=progress_text)
+                        with my_bar:
+                            with httpx.Client(timeout=300.0) as v_client:
+                                sql_validation = request_answer_sql_validation(
+                                    v_client,
+                                    api_base,
+                                    pending_reference_sql,
+                                    sql_query,
+                                )
+                                accuracy_details["summary"] = sql_validation["summary"]
+                                accuracy_details["accuracy"] = sql_validation["accuracy"]
+                                accuracy_details["accuracy_details"] = sql_validation["accuracy_details"]
+                                my_bar.progress(2/total_steps, text=progress_text)
+
+                                #TEST LOOP
+                                params = {"message": prompt,"yaml_agent": api_mode == "yaml_agent", "only_sql": True}
+                                average_accuracy = [accuracy_details["accuracy"]]
+                                for i in range(int(st.session_state.validation_loop_count)):
+                                    with httpx.Client(timeout=300.0) as client:
+                                        r = client.post(f"{api_base}{endpoint}", json=params)
+                                        generated_sql = r.json().get("sql_query")
+                                        my_bar.progress((2*i+3)/total_steps, text=progress_text)
+                                        v = request_answer_sql_validation(v_client,api_base,pending_reference_sql,generated_sql)
+                                        average_accuracy.append(v["accuracy"])
+                                    my_bar.progress((2*i+4)/total_steps, text=progress_text)
+                                accuracy_details["average_accuracy"] = sum(average_accuracy) / len(average_accuracy)
+                                icon = _accuracy_answer_icon(float(accuracy_details["average_accuracy"]))
+                                accuracy_details["average_accuracy_values"] = average_accuracy
                             with st.expander(f"Accuracy &nbsp; {icon}"):
                                 st.json(accuracy_details)
-                except httpx.HTTPStatusError:
-                    st.error(
-                        "The API returned an error. Check server logs and try again."
-                    )
+                        end_time = time.time()
+                        print(f"Time taken: {end_time - start_time} seconds")
+                except httpx.HTTPStatusError as exc:
+                    st.error(f"Error: {str(exc)}")
                     icon = "🔴"
-                except httpx.RequestError:
-                    st.error(
-                        f"Could not reach the API at {api_base}. "
-                        "Start the FastAPI server, then retry."
-                    )
+                except httpx.RequestError as exc:
+                    st.error(f"Error: {str(exc)}")
                     icon = "🔴"
 
             st.session_state.messages.append(
@@ -278,7 +297,7 @@ with st.container(height=_MESSAGES_HEIGHT_PX):
                     "usage": usage_data,
                     "sql_query": sql_query or "",
                     "tools": tools or [],
-                    "sql_validation": sql_validation,
+                    "sql_validation": accuracy_details,
                     "accuracy_icon": icon,
                 }
             )

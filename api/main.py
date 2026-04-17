@@ -97,7 +97,10 @@ class ChatRequest(BaseModel):
         False,
         description="If true, use static context tools instead of the Neo4j semantic layer.",
     )
-
+    only_sql: bool = Field(
+        False,
+        description="If true, only return the SQL query.",
+    )
 
 class ChatResponse(BaseModel):
     answer: str
@@ -113,8 +116,8 @@ class ValidateSQLAnswerRequest(BaseModel):
 
 class ValidateSQLAnswerResponse(BaseModel):
     summary: str
-    average_accuracy: float
-    accuracy: dict
+    accuracy: float
+    accuracy_details: dict
 
 @app.get("/health")
 def health():
@@ -157,7 +160,7 @@ async def yaml_llm(body: ChatRequest):
     try:
         out = await run_in_threadpool(
             lambda: run_yaml_llm_question(
-                body.message.strip(), conn=app.state.db_conn
+                body.message.strip(), conn=app.state.db_conn, only_sql=body.only_sql
             ),
         )
     except Exception:
@@ -177,6 +180,6 @@ async def validate_sql_answer(body: ValidateSQLAnswerRequest):
     result = compare_answer_accuracy(app.state.db_conn, body.reference_sql, body.generated_sql)
     return ValidateSQLAnswerResponse(
         summary=result["summary"],
-        average_accuracy=result["average_accuracy"],
-        accuracy=result["accuracy"],
+        accuracy=result["average_accuracy"],
+        accuracy_details=result["accuracy"],
     )

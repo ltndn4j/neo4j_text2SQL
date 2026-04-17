@@ -84,6 +84,7 @@ def run_yaml_llm_question(
     conn,
     schema_text: str | None = None,
     only_data: bool = False,
+    only_sql: bool = False,
 ) -> dict:
     if schema_text is None:
         schema_text = _load_schema_text()
@@ -107,20 +108,22 @@ def run_yaml_llm_question(
         tools=[],
         store=False,
     )
-
-    try:
-        response_json = json.loads(response.output_text)
-    except (json.JSONDecodeError, TypeError) as e:
-        return {
-            "answer": f"Could not parse model output as JSON: {e}",
-            "sql_query": None,
-            "reasoning": None,
-            "usage": {
+    usage = {
                 "model": response.model,
                 "input_tokens": response.usage.input_tokens,
                 "output_tokens": response.usage.output_tokens,
                 "total_tokens": response.usage.total_tokens,
-            },
+            }
+    try:
+        response_json = json.loads(response.output_text)
+        
+    except (json.JSONDecodeError, TypeError) as e:
+        return {
+            "with_error": False,
+            "answer": f"Could not parse model output as JSON: {e}",
+            "sql_query": None,
+            "reasoning": None,
+            "usage": usage,
         }
 
     query = response_json.get("query")
@@ -128,17 +131,19 @@ def run_yaml_llm_question(
 
     if not query or not isinstance(query, str):
         return {
+            "with_error": False,
             "answer": "Model did not return a valid SQL query string.",
             "sql_query": query if isinstance(query, str) else None,
             "reasoning": reasoning if isinstance(reasoning, str) else None,
-            "usage": {
-                "model": response.model,
-                "input_tokens": response.usage.input_tokens,
-                "output_tokens": response.usage.output_tokens,
-                "total_tokens": response.usage.total_tokens,
-            },
+            "usage": usage
         }
-
+    if only_sql:
+        return {
+            "with_error": False,
+            "answer": "None",
+            "sql_query": query,
+            "usage": usage
+        }
     with conn.cursor() as cur:
         failed = False
         try:
