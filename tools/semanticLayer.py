@@ -9,7 +9,7 @@ EMBEDDING_DIMENSIONS = 1536
 def get_neo4j_driver(neo4j_uri: str, neo4j_username: str, neo4j_password: str):
     return neo4j.GraphDatabase.driver(neo4j_uri, auth=(neo4j_username, neo4j_password))
 
-def create_semantic_tools(driver: neo4j.Driver):
+def create_semantic_tools(driver: neo4j.Driver, context: dict = None):
 
     @tool
     def glossary_columns_and_joins(query: str) -> str:
@@ -20,9 +20,10 @@ def create_semantic_tools(driver: neo4j.Driver):
         q = (query or "").strip()
         if not q:
             return "Provide a non-empty query."
-        
-        embedding = openai.embeddings.create(input=q, model=EMBEDDING_MODEL).data[0].embedding
 
+        embedding = openai.embeddings.create(input=q, model=EMBEDDING_MODEL).data[0].embedding
+        if isinstance(context, dict):
+            context["embedding"] = embedding
         cypher="""
             CALL () {
             CALL db.index.vector.queryNodes('column_similarity', 10, $queryEmbedding)

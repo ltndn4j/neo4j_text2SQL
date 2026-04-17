@@ -221,6 +221,7 @@ with st.container(height=_MESSAGES_HEIGHT_PX):
                             r = client.post(f"{api_base}{endpoint}", json=chat_json)
                     r.raise_for_status()
                     data = r.json()
+                    embeddings = data.get("embeddings")
                     with_error = data.get("with_error")
                     answer_text = data.get("answer") or ""
                     usage_data = data.get("usage")

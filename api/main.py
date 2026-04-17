@@ -71,7 +71,7 @@ def clean_answer(out: str):
         if "text" in value:
             return value["text"]
     return str(value)
-    
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_dotenv(override=True)
@@ -108,6 +108,7 @@ class ChatResponse(BaseModel):
     usage: Optional[dict] = None
     sql_query: Optional[str] = None
     tools: Optional[list] = None
+    embeddings: Optional[list] = None
 
 
 class ValidateSQLAnswerRequest(BaseModel):
@@ -127,11 +128,13 @@ def health():
 @app.post("/chat", response_model=ChatResponse)
 async def chat(body: ChatRequest):
     cb = UsageMetadataCallbackHandler()
+    context = {}
     executor = create_executor(
         app.state.neo4j_driver,
         app.state.db_conn,
         cb,
         yaml_agent=body.yaml_agent,
+        context=context
     )
     try:
         result = await run_in_threadpool(
@@ -149,7 +152,8 @@ async def chat(body: ChatRequest):
         answer=answer,
         usage=_serialize_usage(cb, body.yaml_agent), 
         sql_query=_serialize_sql_query(steps), 
-        tools=_serialize_tools(steps)
+        tools=_serialize_tools(steps),
+        embeddings=context.get("embedding", None)
     )
 
 @app.post("/yaml-llm", response_model=ChatResponse)

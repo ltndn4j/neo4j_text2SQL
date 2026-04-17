@@ -30,10 +30,10 @@ Rules:
 * Don't display the SQL query to the user, only the results of the query execution
 """
 
-def create_executor(driver, db_conn, usage_callback, yaml_agent=False):
+def create_executor(driver, db_conn, usage_callback, yaml_agent=False, context=None):
     tools = (
         db.create_db_tools(db_conn)
-        + (create_static_context_tools() if yaml_agent else create_semantic_tools(driver))
+        + (create_static_context_tools() if yaml_agent else create_semantic_tools(driver, context))
     )
     llm = ChatOpenAI(
         model="gpt-5.4-mini", temperature=0, callbacks=[usage_callback], reasoning={"effort": "low"}
