@@ -60,7 +60,7 @@ schemas:
         foreign_keys: []
 
       department_employee:
-        description: History of which department an employee belonged to over time.
+        description: History of which department an employee belonged to over time. If you need to know the active value, filter the column to_date with '9999-01-01'
         primary_key: [employee_id, department_id, from_date]
         unique_constraints: []
         columns:
@@ -87,7 +87,7 @@ schemas:
             references: { schema: employees, table: department, columns: [id] }
 
       department_manager:
-        description: History of department managers (which employee managed which department over time).
+        description: History of department managers. If you need to know the active value, filter the column to_date with '9999-01-01'
         primary_key: [employee_id, department_id, from_date]
         unique_constraints: []
         columns:
@@ -114,7 +114,7 @@ schemas:
             references: { schema: employees, table: department, columns: [id] }
 
       salary:
-        description: Pay amount history per employee (effective-dated).
+        description: Pay amount history per employee (effective-dated). If you need to know the active value, filter the column to_date with '9999-01-01'
         primary_key: [employee_id, from_date]
         unique_constraints: []
         columns:
@@ -139,7 +139,7 @@ schemas:
             references: { schema: employees, table: employee, columns: [id] }
 
       title:
-        description: Job title history per employee (effective-dated).
+        description: Job title history per employee (effective-dated). If you need to know the active value, filter the column to_date with '9999-01-01'
         primary_key: [employee_id, from_date, title]
         unique_constraints: []
         columns:

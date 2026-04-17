@@ -244,6 +244,7 @@ Organizational units (departments).
 ##### `employees.department_employee`
 
 History of which department an employee belonged to over time.
+If you need to know the active value, filter the column to_date with '9999-01-01'
 
 - **Primary key:** `employee_id, department_id, from_date`
 - **Unique constraints:** —
@@ -263,6 +264,7 @@ History of which department an employee belonged to over time.
 ##### `employees.department_manager`
 
 History of department managers (which employee managed which department over time).
+If you need to know the active value, filter the column to_date with '9999-01-01'
 
 - **Primary key:** `employee_id, department_id, from_date`
 - **Unique constraints:** —
@@ -303,6 +305,7 @@ One row per person employed; anchor for most HR and operational facts.
 ##### `employees.salary`
 
 Pay amount history per employee (effective-dated).
+If you need to know the active value, filter the column to_date with '9999-01-01'
 
 - **Primary key:** `employee_id, from_date`
 - **Unique constraints:** —
@@ -321,6 +324,7 @@ Pay amount history per employee (effective-dated).
 ##### `employees.title`
 
 Job title history per employee (effective-dated).
+If you need to know the active value, filter the column to_date with '9999-01-01'
 
 - **Primary key:** `employee_id, from_date, title`
 - **Unique constraints:** —

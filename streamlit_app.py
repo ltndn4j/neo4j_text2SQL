@@ -26,7 +26,7 @@ QUESTION_SUGGESTIONS = [
         "reference_sql": "SELECT COUNT(*) AS employee_count FROM employees.employee;",
     },
     {
-        "question": "What is the average salary and its related satisfaction for man and woman ?",
+        "question": "What is the average salary and its related satisfaction for men and women ?",
         "reference_sql": """SELECT e.gender,
   count(ss.employee_email) as survey_answer,
   count(e.id) as employee_count,
@@ -38,7 +38,7 @@ LEFT JOIN hr_survey.satisfaction_survey ss ON ss.employee_email = e.email
 GROUP BY e.gender""",
     },
     {
-        "question": "What is the most common first name on each role ?",
+        "question": "Can you give me all the first names on each role that are most common ?",
         "reference_sql": """WITH RankedEmployees AS (
     SELECT 
         t.title, 
@@ -238,7 +238,7 @@ with st.container(height=_MESSAGES_HEIGHT_PX):
                             "average_accuracy": None,
                             "accuracy": {}
                         }
-                        with st.spinner("Validating answer accuracy..."):    
+                        with st.spinner("Validating answer accuracy..."):
                             try:
                                 with httpx.Client(timeout=300.0) as v_client:
                                     sql_validation = request_answer_sql_validation(
@@ -263,11 +263,13 @@ with st.container(height=_MESSAGES_HEIGHT_PX):
                     st.error(
                         "The API returned an error. Check server logs and try again."
                     )
+                    icon = "🔴"
                 except httpx.RequestError:
                     st.error(
                         f"Could not reach the API at {api_base}. "
                         "Start the FastAPI server, then retry."
                     )
+                    icon = "🔴"
 
             st.session_state.messages.append(
                 {

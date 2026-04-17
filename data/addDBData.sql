@@ -43,13 +43,31 @@ SELECT
     -- Picks a random email from the actual employee table
     e.email,
     
-    -- Random scores (1-5)
-    floor(random() * 5 + 1)::int,
-    floor(random() * 5 + 1)::int,
-    floor(random() * 5 + 1)::int,
-    floor(random() * 5 + 1)::int,
-    floor(random() * 5 + 1)::int,
-    floor(random() * 5 + 1)::int,
+    -- Random scores (1-5), Gender-based scores to avoid average
+    CASE 
+        WHEN e.gender = 'F' THEN floor(random() * 4 + 2)::int 
+        ELSE floor(random() * 4 + 2)::int 
+    END, -- recruitment_score
+    CASE 
+        WHEN e.gender = 'F' THEN floor(random() * 4 + 2)::int 
+        ELSE floor(random() * 5 + 1)::int 
+    END, -- benefits_score
+    CASE 
+        WHEN e.gender = 'F' THEN floor(random() * 4 + 2)::int 
+        ELSE floor(random() * 5 + 1)::int 
+    END, -- communication_score
+    CASE 
+        WHEN e.gender = 'F' THEN floor(random() * 5 + 1)::int 
+        ELSE floor(random() * 4 + 2)::int 
+    END, -- support_score
+    CASE 
+        WHEN e.gender = 'F' THEN floor(random() * 4 + 2)::int 
+        ELSE floor(random() * 4 + 2)::int 
+    END, -- development_score
+    CASE 
+        WHEN e.gender = 'F' THEN floor(random() * 3 + 3)::int 
+        ELSE floor(random() * 4 + 1)::int 
+    END, -- payroll_score
     
     'Auto-generated positive feedback for ' || e.email,
     'Auto-generated improvement area for ' || e.email,
@@ -57,8 +75,8 @@ SELECT
     -- Random date within the last 30 days
     NOW() - (random() * (interval '30 days'))
 FROM (
-    -- This subquery gets 200 random emails from your existing table
-    SELECT email 
+    -- This subquery gets 1000 random emails from your existing table
+    SELECT email, gender
     FROM employees.employee 
     ORDER BY random() 
     LIMIT 1000
