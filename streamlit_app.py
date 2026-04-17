@@ -247,8 +247,6 @@ with st.container(height=_MESSAGES_HEIGHT_PX):
                     }
 
                     if (st.session_state.answer_validation and pending_reference_sql and sql_query):
-                        import time
-                        start_time = time.time()
                         progress_text = "Validating answer accuracy..."
                         total_steps = (int(st.session_state.validation_loop_count)+1)*2
                         my_bar = st.progress(1/total_steps, text=progress_text)
@@ -281,8 +279,6 @@ with st.container(height=_MESSAGES_HEIGHT_PX):
                                 accuracy_details["average_accuracy_values"] = average_accuracy
                             with st.expander(f"Accuracy &nbsp; {icon}"):
                                 st.json(accuracy_details)
-                        end_time = time.time()
-                        print(f"Time taken: {end_time - start_time} seconds")
                 except httpx.HTTPStatusError as exc:
                     st.error(f"Error: {str(exc)}")
                     icon = "🔴"
