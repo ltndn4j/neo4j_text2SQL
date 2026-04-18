@@ -9,8 +9,14 @@ Start the API first, for example:
 """
 
 import os
+import pandas as pd
+import io
 import httpx
 import streamlit as st
+from IPython.display import HTML
+import streamlit.components.v1 as components
+from neo4j_viz.pandas import from_dfs
+from neo4j_viz import VisualizationGraph
 
 AVATAR = {
     "user":None,
@@ -93,6 +99,18 @@ def _accuracy_answer_icon(average_accuracy: float) -> str:
     if average_accuracy >= 0.85:
         return "🟠"
     return "🔴"
+
+@st.cache_data
+def create_visualization_graph(nodes_df: pd.DataFrame, rels_df: pd.DataFrame) -> VisualizationGraph:
+    VG = from_dfs(nodes_df, rels_df)
+    VG.color_nodes(property="subject")
+    return VG
+
+@st.cache_data
+def render_graph(
+    _VG: VisualizationGraph, height: int, initial_zoom: float = 0.1
+) -> HTML:
+    return VG.render(initial_zoom=initial_zoom, height=f"{height}px")
 
 
 st.set_page_config(page_title="Text2SQL", page_icon="💬")
@@ -246,6 +264,31 @@ with st.container(height=_MESSAGES_HEIGHT_PX):
                         "accuracy": None,
                         "accuracy_details": {}
                     }
+
+                    #Display the context graph
+                    if embeddings:
+                        with httpx.Client(timeout=300.0) as client:
+                            r = client.post(f"{api_base}/context-graph", json={"embedding": embeddings})
+                            r.raise_for_status()
+                            df = pd.read_parquet(io.BytesIO(r.content))
+                            sources = df[['sourceNodeId', 'sourceLabels']].rename(columns={'sourceNodeId': 'id', 'sourceLabels': 'caption'})
+                            targets = df[['targetNodeId', 'targetLabels']].rename(columns={'targetNodeId': 'id', 'targetLabels': 'caption'})
+                            combined_df = pd.concat([sources, targets], ignore_index=True)
+                            nodes_df = combined_df.drop_duplicates(subset=['id'])
+                            rels_df = df[['relationshipType', 'sourceNodeId', 'targetNodeId']].rename(columns={
+                                'relationshipType': 'caption',
+                                'sourceNodeId': 'source',
+                                'targetNodeId': 'target'
+                            })
+
+                            VG = create_visualization_graph(nodes_df, rels_df)
+                            with st.sidebar:
+                                height = st.slider("Height in pixels", 100, 2000, 600, 50)
+                            components.html(
+                                render_graph(VG, height=height).data,
+                                height=height,
+                            )
+
 
                     if (st.session_state.answer_validation and pending_reference_sql and sql_query):
                         progress_text = "Validating answer accuracy..."

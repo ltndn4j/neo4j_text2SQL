@@ -5,3 +5,5 @@ pyvenv.cfg
 include
 .env
 __pycache__/
+etc
+share

@@ -2,7 +2,7 @@ import json
 import pandas as pd
 from dotenv import load_dotenv
 from neo4j_graphrag.llm import OpenAILLM
-import tools.postgresql as db
+import tools.postgresqlTool as db
 
 load_dotenv(override=True)
 

@@ -2,23 +2,21 @@ import os
 import json
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 
-import tools.postgresql as db
-from tools.semanticLayer import get_neo4j_driver, create_semantic_tools
+import tools.postgresqlTool as db
+from tools.semanticLayerTool import get_neo4j_driver, create_semantic_tools
 from tools.dummyTool import create_dummy_tools
-from tools.staticContext import create_static_context_tools
+from tools.staticContextTool import create_static_context_tools
 
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
 
-from aura.setupAura import getInstanceId
+from aura.setupAura import getInstanceId, PROJECT_ID, NEO4J_INSTANCE
 
 from dotenv import load_dotenv
 load_dotenv(override=True)
 
 PG_SCHEMA = "employees"
-PROJECT_ID = "875a99c2-d2e2-4bf6-8ddb-78dcc7d2fecc"
-NEO4J_INSTANCE = "text2sql-instance"
 
 SYSTEM_PROMPT = """You are a Text2SQL agent and are tasked with answering questions about our dataset on employees. 
 Use the metadata to collect relevant schema to inform your SQL queries.

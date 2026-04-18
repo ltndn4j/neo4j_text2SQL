@@ -9,6 +9,9 @@ Pair with Streamlit (terminal 2); set API_BASE to this server's URL.
 
 import json
 import os
+import io
+import pandas as pd
+from fastapi import Response
 from typing import Optional
 from contextlib import asynccontextmanager
 
@@ -18,11 +21,12 @@ from langchain_core.callbacks import UsageMetadataCallbackHandler
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-import tools.postgresql as db
+import tools.postgresqlTool as db
 from agent import NEO4J_INSTANCE, PROJECT_ID, create_executor
 from LLM import run_yaml_llm_question, compare_answer_accuracy
 from aura.setupAura import getInstanceId
-from tools.semanticLayer import get_neo4j_driver
+from tools.semanticLayerTool import get_neo4j_driver
+from semanticLayer import get_context_graph
 
 
 def _db_conn_ok(conn) -> bool:
@@ -120,6 +124,9 @@ class ValidateSQLAnswerResponse(BaseModel):
     accuracy: float
     accuracy_details: dict
 
+class ContextGraphRequest(BaseModel):
+    embedding: list
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -186,4 +193,15 @@ async def validate_sql_answer(body: ValidateSQLAnswerRequest):
         summary=result["summary"],
         accuracy=result["average_accuracy"],
         accuracy_details=result["accuracy"],
+    )
+
+@app.post("/context-graph")
+async def context_graph(body: ContextGraphRequest):
+    df = get_context_graph(body.embedding)
+    # Convert to Parquet in memory
+    buffer = io.BytesIO()
+    df.to_parquet(buffer, engine='pyarrow')
+    return Response(
+        content=buffer.getvalue(), 
+        media_type="application/octet-stream"
     )
