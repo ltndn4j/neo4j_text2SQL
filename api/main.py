@@ -26,7 +26,7 @@ from agent import NEO4J_INSTANCE, PROJECT_ID, create_executor
 from LLM import run_yaml_llm_question, compare_answer_accuracy
 from aura.setupAura import getInstanceId
 from tools.semanticLayerTool import get_neo4j_driver
-from semanticLayer import get_context_graph
+from semanticLayer import get_context_graph, get_model
 
 
 def _db_conn_ok(conn) -> bool:
@@ -125,7 +125,7 @@ class ValidateSQLAnswerResponse(BaseModel):
     accuracy_details: dict
 
 class ContextGraphRequest(BaseModel):
-    embedding: list
+    embedding: Optional[list] = None
 
 @app.get("/health")
 def health():
@@ -197,7 +197,10 @@ async def validate_sql_answer(body: ValidateSQLAnswerRequest):
 
 @app.post("/context-graph")
 async def context_graph(body: ContextGraphRequest):
-    df = get_context_graph(body.embedding)
+    if body.embedding is None:
+        df = get_model(app.state.neo4j_driver)
+    else:
+        df = get_context_graph(app.state.neo4j_driver, body.embedding)
     # Convert to Parquet in memory
     buffer = io.BytesIO()
     df.to_parquet(buffer, engine='pyarrow')
