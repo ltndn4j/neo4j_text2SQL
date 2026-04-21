@@ -94,14 +94,14 @@ def load_schema(db_conn: psycopg2.extensions.connection, driver: neo4j.GraphData
                 values = curVal.fetchall()
                 cypherValue="""
                     MERGE (c:Column {tableName: $table_name, name: $column_name})
-                    MERGE (v:Value {value: $value})
+                    MERGE (v:Value {columnName: $table_name+"."+$column_name, value: $value})
                     MERGE (c)-[:HAS_VALUE]->(v)
                 """
                 for value in values:
                     paramsValue={
                         "table_name": c[0],
                         "column_name": c[1],
-                        "value": value[0]
+                        "value": str(value[0])
                     }
                     session.run(cypherValue, paramsValue)
 

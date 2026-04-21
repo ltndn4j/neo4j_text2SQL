@@ -21,7 +21,7 @@ def createDB():
     conn.autocommit = False
     try:
         #Initialize the database
-        if input("Do you want to reset the database (y/n) ? ") == "y":
+        if input("Do you want to drop all the PostgreSQL database before creating it (y/n) ? ") == "y":
             DROP_ALL = """
             DROP SCHEMA IF EXISTS employees CASCADE;
             DROP SCHEMA IF EXISTS payroll CASCADE;

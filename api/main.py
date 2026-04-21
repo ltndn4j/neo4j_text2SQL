@@ -116,6 +116,7 @@ class ChatResponse(BaseModel):
 
 
 class ValidateSQLAnswerRequest(BaseModel):
+    columns_to_compare: str
     reference_sql: str
     generated_sql: str
 
@@ -188,7 +189,7 @@ async def yaml_llm(body: ChatRequest):
 
 @app.post("/validate-sql-answer", response_model=ValidateSQLAnswerResponse)
 async def validate_sql_answer(body: ValidateSQLAnswerRequest):
-    result = compare_answer_accuracy(app.state.db_conn, body.reference_sql, body.generated_sql)
+    result = compare_answer_accuracy(app.state.db_conn, body.columns_to_compare, body.reference_sql, body.generated_sql)
     return ValidateSQLAnswerResponse(
         summary=result["summary"],
         accuracy=result["average_accuracy"],

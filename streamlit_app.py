@@ -30,6 +30,7 @@ QUESTION_SUGGESTIONS = [
     {
         "question": "How many divisions are there in the company ?",
         "reference_sql": "SELECT COUNT(*) AS division_count FROM employees.department;",
+        "columns_to_compare": "division_count",
     },
     {
         "question": "What is the average salary and its related satisfaction for men and women ?",
@@ -42,6 +43,7 @@ FROM employees.employee e
 JOIN employees.salary s ON s.employee_id = e.id  AND s.from_date <= DATE '2026-04-15' AND s.to_date > DATE '2026-04-16'
 LEFT JOIN hr_survey.satisfaction_survey ss ON ss.employee_email = e.email
 GROUP BY e.gender""",
+        "columns_to_compare": "Compare only the two columns average_salary and average_payroll_satisfaction, using the column gender as the reference.",
     },
     {
         "question": "Can you give me all the first names on each role that are most common ?",
@@ -49,18 +51,19 @@ GROUP BY e.gender""",
     SELECT 
         t.title, 
         e.first_name, 
-        COUNT(e.id) AS nbre,
+        COUNT(e.id) AS employee_count,
         ROW_NUMBER() OVER(PARTITION BY t.title ORDER BY COUNT(e.id) DESC) as rank_id
     FROM employees.employee e
     JOIN employees.title t ON t.employee_id = e.id
     WHERE t.to_date = DATE '9999-01-01'
     GROUP BY t.title, e.first_name
 )
-SELECT title, first_name, nbre
+SELECT title, first_name, employee_count
 FROM RankedEmployees
 WHERE rank_id = 1
 ORDER BY title;
-"""
+""",
+        "columns_to_compare": "Compare only the column first_name and employee_count if avaiblable, using the column title as the reference.",
     }
 ]
 
@@ -68,6 +71,7 @@ ORDER BY title;
 def request_answer_sql_validation(
     client: httpx.Client,
     api_base: str,
+    columns_to_compare: str,
     reference_sql: str,
     generated_sql: str,
 ) -> dict:
@@ -79,15 +83,16 @@ def request_answer_sql_validation(
     base = api_base.rstrip("/")
     response = client.post(
         f"{base}/validate-sql-answer",
-        json={"reference_sql": reference_sql, "generated_sql": generated_sql},
+        json={"columns_to_compare": columns_to_compare,"reference_sql": reference_sql, "generated_sql": generated_sql},
     )
     response.raise_for_status()
     return response.json()
 
 
-def _queue_suggestion(question: str, reference_sql: str) -> None:
+def _queue_suggestion(question: str, reference_sql: str, columns_to_compare: str) -> None:
     st.session_state.pending_prompt = question
     st.session_state.pending_reference_sql = reference_sql
+    st.session_state.pending_columns_to_compare = columns_to_compare
     st.session_state.suppress_example_buttons = True
 
 def get_semantic_layer_model(api_base: str) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -247,7 +252,7 @@ with _settings_col:
                 disabled=not st.session_state.answer_validation,
             )
             if st.session_state.validation_loop_count > 2:
-                st.warning("Many loops will take time.", icon="🚨")
+                st.warning("Many loops will take 2-3mn.", icon="🚨")
             st.session_state.show_usage = st.toggle(
                 "Usage",
                 value=st.session_state.show_usage,
@@ -279,6 +284,7 @@ with _settings_col:
 
 pending_prompt = st.session_state.pop("pending_prompt", None)
 pending_reference_sql = st.session_state.pop("pending_reference_sql", None)
+pending_columns_to_compare = st.session_state.pop("pending_columns_to_compare", None)
 chat_input = st.chat_input("Ask about the employee dataset")
 prompt = pending_prompt or chat_input
 from_example_question = pending_prompt is not None
@@ -387,6 +393,7 @@ with col_chat:
                                     sql_validation = request_answer_sql_validation(
                                         v_client,
                                         api_base,
+                                        pending_columns_to_compare,
                                         pending_reference_sql,
                                         sql_query,
                                     )
@@ -403,7 +410,7 @@ with col_chat:
                                             r = client.post(f"{api_base}{endpoint}", json=params)
                                             generated_sql = r.json().get("sql_query")
                                             my_bar.progress((2*i+3)/total_steps, text=progress_text)
-                                            v = request_answer_sql_validation(v_client,api_base,pending_reference_sql,generated_sql)
+                                            v = request_answer_sql_validation(v_client,api_base,pending_columns_to_compare,pending_reference_sql,generated_sql)
                                             average_accuracy.append(v["accuracy"])
                                         my_bar.progress((2*i+4)/total_steps, text=progress_text)
                                     accuracy_details["average_accuracy"] = sum(average_accuracy) / len(average_accuracy)
@@ -444,5 +451,5 @@ with col_chat:
                         key=f"example_q_{i}",
                         use_container_width=True,
                         on_click=_queue_suggestion,
-                        args=(item["question"], item["reference_sql"]),
+                        args=(item["question"], item["reference_sql"], item["columns_to_compare"]),
                     )

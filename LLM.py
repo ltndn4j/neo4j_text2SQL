@@ -213,7 +213,7 @@ def run_yaml_llm_question(
         },
     }
 
-def compare_answer_accuracy(conn, reference_sql: str, generated_sql: str) -> dict:
+def compare_answer_accuracy(conn, columns_to_compare: str, reference_sql: str, generated_sql: str) -> dict:
     with conn.cursor() as cur:
         cur.execute(reference_sql)
         ref_df = pd.DataFrame(cur.fetchall(), columns=[desc[0] for desc in cur.description])
@@ -226,6 +226,8 @@ def compare_answer_accuracy(conn, reference_sql: str, generated_sql: str) -> dic
             gen_data = f"Error: {e}"
     
     prompt = f"""
+    #Columns to compare:
+    {columns_to_compare}
     #Reference data:
     ## SQL Query
     {reference_sql}

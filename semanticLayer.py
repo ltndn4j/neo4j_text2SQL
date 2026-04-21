@@ -54,7 +54,8 @@ WITH links, sourceTable as table
 MATCH p=(:Schema)-[:CONTAINS_TABLE]->(table)-[:HAS_COLUMN]->(column:Column)
 OPTIONAL MATCH termCol = (:Term)-[:HAS_TERM*0..]->(:Term)-[:DEFINES]->(column)
 OPTIONAL MATCH termTable = (:Term)-[:HAS_TERM*0..]->(:Term)-[:DEFINES]->(table)
-WITH collect(links)+collect(p)+collect(termCol)+collect(termTable) as allpath
+OPTIONAL MATCH values = (column)-[:HAS_VALUE]->(:Value)
+WITH collect(links)+collect(p)+collect(termCol)+collect(termTable)+collect(values) as allpath
 UNWIND allpath as path
 CALL (path) {
     WITH nodes(path) as nodes
