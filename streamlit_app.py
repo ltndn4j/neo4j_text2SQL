@@ -23,7 +23,10 @@ AVATAR = {
     "yaml_llm":"✨", 
     "yaml_agent":"./icon/ai-assistant.png", 
     "agent":"./icon/Neo4j-icon-color.png"
-} 
+}
+
+PUBLIC_API_MODES = ["yaml_agent", "agent"]
+HIDDEN_API_MODES = ["yaml_llm"]
 
 # Curated example questions with reference SQL (expected answer query).
 QUESTION_SUGGESTIONS = [
@@ -213,6 +216,8 @@ if "saved_context_graph_rels" not in st.session_state:
     st.session_state.saved_context_graph_rels = None
 if "context_graph_displayed" not in st.session_state:
     st.session_state.context_graph_displayed = False
+if "show_hidden_backends" not in st.session_state:
+    st.session_state.show_hidden_backends = False
 
 st.markdown(
     """
@@ -221,6 +226,28 @@ st.markdown(
         padding-top: 1rem;
         padding-bottom: 0rem;
         margin-top: 0rem;
+    }
+    div.st-key-agent_settings_header button {
+        font-weight: 700;
+        font-size: 1rem;
+        padding: 0;
+        margin: 0;
+        border: none;
+        background: transparent;
+        color: inherit;
+        min-height: unset;
+        line-height: 1.5;
+        text-align: left;
+        width: auto;
+    }
+    div.st-key-agent_settings_header button:hover,
+    div.st-key-agent_settings_header button:focus {
+        border: none;
+        color: inherit;
+    }
+    div.st-key-agent_settings_header button:focus-visible {
+        outline: 2px solid currentColor;
+        outline-offset: 2px;
     }
     </style>
     """,
@@ -264,7 +291,9 @@ with _semantic_graph_col:
 with _settings_col:
     with st.container(horizontal_alignment="right"):
         with st.popover("⚙️", help="Settings", disabled=st.session_state.suppress_example_buttons):
-            st.markdown("**Show under assistant messages**")
+            if st.button("**Define the settings for the agent**",key="agent_settings_header",type="tertiary"):
+                st.session_state.show_hidden_backends = True
+                st.rerun()
             st.session_state.answer_validation = st.toggle(
                 "Check Answer accuracy",
                 value=st.session_state.answer_validation,
@@ -294,9 +323,12 @@ with _settings_col:
                 value=st.session_state.show_tools,
                 help="Which tools the agent invoked for that answer.",
             )
+            _backend_options = list(PUBLIC_API_MODES)
+            if st.session_state.show_hidden_backends:
+                _backend_options = list(PUBLIC_API_MODES) + list(HIDDEN_API_MODES)
             api_mode = st.radio(
                 "Backend",
-                options=["yaml_agent", "agent", "yaml_llm"],
+                options=_backend_options,
                 format_func=lambda x: (
                     "Neo4j Semantic Layer agent"
                     if x == "agent"
