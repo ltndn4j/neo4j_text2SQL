@@ -27,10 +27,10 @@ Rules:
 * Don't display the SQL query to the user, only the results of the query execution
 """
 
-def create_executor(driver, db_conn, usage_callback, yaml_agent=False, context=None):
+def create_executor(driver, db_conn, usage_callback, threshold: float, yaml_agent=False, context=None):
     tools = (
         db.create_db_tools(db_conn)
-        + (create_static_context_tools() if yaml_agent else create_semantic_tools(driver, context))
+        + (create_static_context_tools() if yaml_agent else create_semantic_tools(driver, threshold, context))
     )
     llm = ChatOpenAI(
         model="gpt-5.4-mini", temperature=0, callbacks=[usage_callback], reasoning={"effort": "low"}
@@ -59,7 +59,7 @@ def build_executor(cb):
     password = neo4j_config["neo4j_password"] or os.getenv("neo4j_password")
     driver = get_neo4j_driver(uri, user, password)
     db_conn = db.get_db_connect()
-    return create_executor(driver, db_conn, cb), driver, db_conn
+    return create_executor(driver, db_conn, cb, 0.65), driver, db_conn
 
 def main():
     cb = UsageMetadataCallbackHandler()

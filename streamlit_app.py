@@ -28,6 +28,8 @@ AVATAR = {
 PUBLIC_API_MODES = ["yaml_agent", "agent"]
 HIDDEN_API_MODES = ["yaml_llm"]
 
+THRESHOLD = 0.65
+
 # Curated example questions with reference SQL (expected answer query).
 QUESTION_SUGGESTIONS = [
     {
@@ -61,10 +63,11 @@ GROUP BY e.gender""",
     WHERE t.to_date = DATE '9999-01-01'
     GROUP BY t.title, e.first_name
 )
-SELECT title, first_name, employee_count
-FROM RankedEmployees
-WHERE rank_id = 1
-ORDER BY title;
+SELECT r1.title, r1.first_name, r1.employee_count
+FROM RankedEmployees r1
+JOIN RankedEmployees r2 ON r1.title = r2.title AND r1.employee_count = r2.employee_count
+WHERE r2.rank_id = 1
+ORDER BY r1.title, r1.first_name
 """,
         "columns_to_compare": "Compare only the column first_name and employee_count if avaiblable, using the column title as the reference.",
     }
@@ -121,7 +124,7 @@ def get_context_graph(api_base: str, embedding: list) -> tuple[pd.DataFrame, pd.
     node_cols = ["id", "labels", "properties"]
     rel_cols = ["type", "source", "target", "properties"]
     with httpx.Client(timeout=300.0) as client:
-        r = client.post(f"{api_base}/context-graph", json={"embedding": embedding})
+        r = client.post(f"{api_base}/context-graph", json={"embedding": embedding, "threshold": THRESHOLD})
         df = pd.read_parquet(io.BytesIO(r.content))
         nodes_df = df.loc[df["class"] == "NODE", node_cols].copy()
         rels_df = df.loc[df["class"] == "REL", rel_cols].copy()
@@ -142,9 +145,9 @@ def create_visualization_graph(nodes_df: pd.DataFrame, rels_df: pd.DataFrame) ->
     vg.color_nodes(
         property="labelColor",
         colors={
-            "Database":"#a964f6", "Schema": "#0020ff", "Table": "#6d98cb", "Column": "#57c7e3", 
+            "Database":"#a964f6", "Schema": "#0020ff", "Table": "#6793c9", "Column": "#57c7e3", 
             "Constraint":"#f16667", "ForeignKey":"#f79767", "Index":"#ffc454",
-            "Term":"#3ca180", "Value":"#8dcc93"
+            "Term":"#347b64", "Value":"#8dcc93"
         }, 
         color_space=ColorSpace.DISCRETE
     )
@@ -405,6 +408,7 @@ with col_chat:
                                 chat_json = {
                                     "message": prompt,
                                     "yaml_agent": api_mode == "yaml_agent",
+                                    "threshold": THRESHOLD,
                                 }
                                 r = client.post(f"{api_base}{endpoint}", json=chat_json)
                         r.raise_for_status()

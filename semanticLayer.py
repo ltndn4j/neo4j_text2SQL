@@ -24,34 +24,30 @@ def get_model(driver: neo4j.Driver) -> pd.DataFrame:
 
 CONTEXT_QUERY = """
 CALL () {
-            CALL db.index.vector.queryNodes('column_similarity', 10, $queryEmbedding)
-            YIELD node, score
-            WHERE score > 0.7
-            WITH node as column, score
-            MATCH (column)<-[:HAS_COLUMN]-(table:Table)
-            RETURN DISTINCT table
-            UNION
-            CALL db.index.vector.queryNodes('term_similarity', 10, $queryEmbedding)
-            YIELD node, score
-            WHERE score > 0.65
-            WITH node as entryTerm, score
-            MATCH (entryTerm)-[:HAS_TERM*0..]->(:Term)-[:DEFINES|HAS_COLUMN*1..2]->(c:Column)
-            MATCH (c)<-[:HAS_COLUMN]-(table:Table)
-            RETURN DISTINCT table
-            }
-WITH collect(table) as tables
-UNWIND tables as sourceTable
-UNWIND tables as targetTable
-WITH sourceTable, targetTable
-CALL (sourceTable, targetTable) {
-  OPTIONAL MATCH links = (sourceTable)-->(:Column)-[:HAS_FOREIGN_KEY|ON_COLUMN]-(:ForeignKey)-[:HAS_FOREIGN_KEY|ON_COLUMN]-(:Column)<--(targetTable)
-  RETURN links
-  UNION 
-  OPTIONAL MATCH links = (sourceTable)-->(:Column)-[:REFERENCES]-(:Column)<--(targetTable)
-  RETURN links
+    CALL db.index.vector.queryNodes('column_similarity', 10, $queryEmbedding)
+    YIELD node, score WHERE score > $threshold + 0.05
+    WITH node as column
+    RETURN DISTINCT column
+    UNION
+    CALL db.index.vector.queryNodes('term_similarity', 10, $queryEmbedding)
+    YIELD node, score WHERE score > $threshold
+    WITH node as entryTerm
+    MATCH (entryTerm)-[:HAS_TERM*0..]->(:Term)-[:DEFINES|HAS_COLUMN*1..2]->(column:Column)
+    RETURN DISTINCT column
 }
-WITH links, sourceTable as table
-MATCH p=(:Schema)-[:CONTAINS_TABLE]->(table)-[:HAS_COLUMN]->(column:Column)
+WITH collect(column) as columns
+UNWIND columns as sourceColumn
+UNWIND columns as targetColumn
+WITH sourceColumn, targetColumn
+CALL (sourceColumn, targetColumn) {
+    OPTIONAL MATCH links=(fromSchema:Schema)-->(:Table {name:sourceColumn.tableName})-->(fromColumn:Column)-[:HAS_FOREIGN_KEY|ON_COLUMN]-(:ForeignKey)-[:HAS_FOREIGN_KEY|ON_COLUMN]-(toColumn:Column)<--(:Table {name:targetColumn.tableName})<--(toSchema:Schema)
+    RETURN links
+    UNION 
+    OPTIONAL MATCH links=(fromSchema:Schema)-->(:Table {name:sourceColumn.tableName})-->(fromColumn:Column)-[:REFERENCES]-(toColumn:Column)<--(:Table {name:targetColumn.tableName})<--(toSchema:Schema)
+    RETURN links
+}
+WITH DISTINCT sourceColumn as column, links
+MATCH p=(:Schema)-[:CONTAINS_TABLE]->(table:Table)-[:HAS_COLUMN]->(column:Column)
 OPTIONAL MATCH termCol = (:Term)-[:HAS_TERM*0..]->(:Term)-[:DEFINES]->(column)
 OPTIONAL MATCH termTable = (:Term)-[:HAS_TERM*0..]->(:Term)-[:DEFINES]->(table)
 OPTIONAL MATCH values = (column)-[:HAS_VALUE]->(:Value)
@@ -69,10 +65,10 @@ CALL (path) {
 RETURN DISTINCT class, id, labels, type, source, target, properties
 """
 
-def get_context_graph(driver: neo4j.Driver, embedding: list) -> pd.DataFrame:
+def get_context_graph(driver: neo4j.Driver, embedding: list, threshold: float) -> pd.DataFrame:
     result = driver.execute_query(
         CONTEXT_QUERY,
-        queryEmbedding=embedding,
+        {"queryEmbedding":embedding, "threshold":threshold},
         result_transformer_=neo4j.Result.to_df
     )
     return result

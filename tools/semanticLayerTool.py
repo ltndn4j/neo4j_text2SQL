@@ -9,7 +9,7 @@ EMBEDDING_DIMENSIONS = 1536
 def get_neo4j_driver(neo4j_uri: str, neo4j_username: str, neo4j_password: str):
     return neo4j.GraphDatabase.driver(neo4j_uri, auth=(neo4j_username, neo4j_password))
 
-def create_semantic_tools(driver: neo4j.Driver, context: dict = None):
+def create_semantic_tools(driver: neo4j.Driver, threshold: float,context: dict = None):
 
     @tool
     def glossary_columns_and_joins(query: str) -> str:
@@ -26,80 +26,79 @@ def create_semantic_tools(driver: neo4j.Driver, context: dict = None):
             context["embedding"] = embedding
             context["question"] = q
         cypher="""
-            CALL () {
-            CALL db.index.vector.queryNodes('column_similarity', 10, $queryEmbedding)
-            YIELD node, score
-            WHERE score > 0.6
-            WITH node as column, score
-            MATCH (column)<-[:HAS_COLUMN]-(table:Table)
-            OPTIONAL MATCH (term:Term)-[:DEFINES]->(column)
-            RETURN DISTINCT table, column.tableName as table_name, column.name as column_name
-            UNION
-            CALL db.index.vector.queryNodes('term_similarity', 10, $queryEmbedding)
-            YIELD node, score
-            WHERE score > 0.6
-            WITH node as term, score
-            MATCH (term)-[HAS_TERM]->+(:Term)-[:DEFINES]->(target)
-            OPTIONAL MATCH (target)-[:HAS_COLUMN]->(c:Column)
-            WITH term, target, c, score
-            RETURN DISTINCT
-                CASE 
-                    WHEN 'Table' IN labels(target) THEN target
-                    ELSE [(table)-[:HAS_COLUMN]->(target) | table][0]
-                END AS table,
-                CASE 
-                    WHEN 'Column' IN labels(target) THEN target.tableName
-                    ELSE c.name 
-                END AS table_name,
-                CASE 
-                    WHEN 'Column' IN labels(target) THEN target.name 
-                    ELSE c.name 
-                END AS column_name
-            }
-            WITH table, table_name, column_name
-            OPTIONAL MATCH (table)-[:HAS_COLUMN]-(col:Column)
+CALL () {
+    CALL db.index.vector.queryNodes('column_similarity', 10, $queryEmbedding)
+    YIELD node, score WHERE score > $threshold + 0.05
+    WITH node as column
+    RETURN DISTINCT column
+    UNION
+    CALL db.index.vector.queryNodes('term_similarity', 10, $queryEmbedding)
+    YIELD node, score WHERE score > $threshold
+    WITH node as entryTerm
+    MATCH (entryTerm)-[:HAS_TERM*0..]->(:Term)-[:DEFINES|HAS_COLUMN*1..2]->(column:Column)
+    RETURN DISTINCT column
+}
+WITH collect(column) as columns
+UNWIND columns as sourceColumn
+UNWIND columns as targetColumn
+WITH sourceColumn, targetColumn
+CALL (sourceColumn, targetColumn) {
+    OPTIONAL MATCH (fromSchema:Schema)-->(:Table {name:sourceColumn.tableName})-->(fromColumn:Column)-[:HAS_FOREIGN_KEY|ON_COLUMN]-(:ForeignKey)-[:HAS_FOREIGN_KEY|ON_COLUMN]-(toColumn:Column)<--(:Table {name:targetColumn.tableName})<--(toSchema:Schema)
+    RETURN fromSchema, fromColumn, toSchema, toColumn
+    UNION 
+    OPTIONAL MATCH (fromSchema:Schema)-->(:Table {name:sourceColumn.tableName})-->(fromColumn:Column)-[:REFERENCES]-(toColumn:Column)<--(:Table {name:targetColumn.tableName})<--(toSchema:Schema)
+    RETURN fromSchema, fromColumn, toSchema, toColumn
+}
+WITH DISTINCT sourceColumn as column, fromSchema, fromColumn, toSchema, toColumn
+WITH column, 
+CASE 
+  WHEN toSchema IS NULL THEN NULL
+  ELSE {
+    source:{schema:fromSchema.name, table:fromColumn.tableName, column:fromColumn.name},
+    target:{schema:toSchema.name, table:toColumn.tableName, column:toColumn.name}
+  }
+END as join
+WITH column, collect(join) as table_joins
 
-            // Path 1: Direct Reference
-            OPTIONAL MATCH (col)-[:REFERENCES]-(refCol:Column)
+// Reach out to Schema and Database context
+MATCH (db:Database)-[:CONTAINS_SCHEMA]->(schema:Schema)-[:CONTAINS_TABLE]->(table:Table)-[:HAS_COLUMN]->(column)
 
-            // Path 2: Foreign Key Chain
-            OPTIONAL MATCH (col)-[:HAS_FOREIGN_KEY|ON_COLUMN]-()-[:HAS_FOREIGN_KEY|ON_COLUMN]-(fkCol:Column)
+// Aggregate Column details
+OPTIONAL MATCH (:Term)-[:HAS_TERM*0..]->(tc:Term)-[:DEFINES]->(column)
+OPTIONAL MATCH (column)-[:HAS_VALUE]->(v:Value)
 
-            WITH table_name, column_name, col, collect(DISTINCT refCol) + collect(DISTINCT fkCol) AS linkedColumns, table.comment as table_comment
-            UNWIND linkedColumns AS linkedColumn
-            MATCH (d:Database)-[:CONTAINS_SCHEMA]->(s:Schema)-[:CONTAINS_TABLE]->(table:Table {name:table_name})
-            MATCH (schemaLinkedCol:Schema)-->(:Table)-->(linkedColumn)
-            WITH 
-            d.name as database,
-            s.name as schema,
-            table_name,
-            table_comment,
-            [(t:Term)-[:DEFINES]->(:Table {name:table_name}) | t.name + ": " + t.definition] as table_description,
-            collect(DISTINCT {
-            source:{schema:s.name, table:col.tableName, column:col.name},
-            target:{schema:schemaLinkedCol.name, table:linkedColumn.tableName, column:linkedColumn.name}
-            }) as table_joins,
-            collect(DISTINCT {
-            column_name:column_name, 
-            description:[(t:Term)-[:DEFINES]->(:Column {tableName:table_name, name:column_name}) | t.name + ": " + t.definition],
-            values: [(:Column {tableName:table_name, name:column_name})-[:HAS_VALUE]->(v:Value) | v.value]
-            }) as columns
-            RETURN {
-            database:database,
-            schema:schema,
-            table_name:table_name,
-            table_comment: table_comment,
-            table_description:table_description,
-            table_joins:table_joins,
-            columns:columns
-            } as result
-        """
+WITH db, schema, table, table_joins, column, 
+     collect(DISTINCT tc.definition) as col_terms, 
+     collect(DISTINCT v.value) as col_values
+
+WITH db, schema, table, table_joins, 
+     collect({
+       name: column.name,
+       type: column.type,
+       description: col_terms,
+       sample_values: col_values
+     }) as columns
+
+// Final formatting
+OPTIONAL MATCH (:Term)-[:HAS_TERM*0..]->(tt:Term)-[:DEFINES]->(table)
+
+RETURN {
+    database: db.name,
+    schema: schema.name,
+    table_name: table.name,
+    table_comment: table.comment,
+    table_description: tt.definition,
+    table_joins: table_joins,
+    columns: columns
+} as result
+"""
+
         with driver.session() as session:
             session.run(
                 "MERGE (le:LastExecution) SET le.toolEmbedding = $embedding, le.agentQuestion = $q", 
                 {"embedding": embedding, "q": q}
             )
-            result = session.run(cypher, queryEmbedding=embedding)
+            result = session.run(cypher, {"queryEmbedding":embedding, "threshold":threshold})
             result_list = [row.data()['result'] for row in result]
             return json.dumps(result_list)
     return [glossary_columns_and_joins]

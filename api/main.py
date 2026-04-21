@@ -105,6 +105,10 @@ class ChatRequest(BaseModel):
         False,
         description="If true, only return the SQL query.",
     )
+    threshold: float = Field(
+        0.65,
+        description="The threshold for the Neo4j semantic layer.",
+    )
 
 class ChatResponse(BaseModel):
     answer: str
@@ -127,6 +131,10 @@ class ValidateSQLAnswerResponse(BaseModel):
 
 class ContextGraphRequest(BaseModel):
     embedding: Optional[list] = None
+    threshold: float = Field(
+        0.65,
+        description="The threshold for the Neo4j semantic layer.",
+    )
 
 @app.get("/health")
 def health():
@@ -141,6 +149,7 @@ async def chat(body: ChatRequest):
         app.state.neo4j_driver,
         app.state.db_conn,
         cb,
+        body.threshold,
         yaml_agent=body.yaml_agent,
         context=context
     )
@@ -201,7 +210,7 @@ async def context_graph(body: ContextGraphRequest):
     if body.embedding is None:
         df = get_model(app.state.neo4j_driver)
     else:
-        df = get_context_graph(app.state.neo4j_driver, body.embedding)
+        df = get_context_graph(app.state.neo4j_driver, body.embedding, body.threshold)
     # Convert to Parquet in memory
     buffer = io.BytesIO()
     df.to_parquet(buffer, engine='pyarrow')
