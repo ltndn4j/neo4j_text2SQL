@@ -7,9 +7,12 @@ UNWIND relationships AS rel
 RETURN 
     type(rel) AS relationshipType,
     elementId(startNode(rel)) AS sourceNodeId,
-    labels(startNode(rel))[0] AS sourceLabels,
+    labels(startNode(rel)) AS sourceLabels,
     elementId(endNode(rel)) AS targetNodeId,
-    labels(endNode(rel))[0] AS targetLabels
+    labels(endNode(rel)) AS targetLabels,
+    properties(rel) as relProperties,
+    properties(startNode(rel)) as sourceNodeProperties,
+    properties(endNode(rel)) as endNodeProperties
 """
 
 def get_model(driver: neo4j.Driver) -> pd.DataFrame:
@@ -23,32 +26,46 @@ CONTEXT_QUERY = """
 CALL () {
             CALL db.index.vector.queryNodes('column_similarity', 10, $queryEmbedding)
             YIELD node, score
-            WHERE score > 0.6
+            WHERE score > 0.7
             WITH node as column, score
-            MATCH p1 = (column)<-[hc:HAS_COLUMN]-(table:Table)
-            OPTIONAL MATCH p2 = (term:Term)-[d:DEFINED]->(column)
-            RETURN DISTINCT p1, p2
+            MATCH (column)<-[:HAS_COLUMN]-(table:Table)
+            RETURN DISTINCT table
             UNION
             CALL db.index.vector.queryNodes('term_similarity', 10, $queryEmbedding)
             YIELD node, score
-            WHERE score > 0.6
+            WHERE score > 0.65
             WITH node as entryTerm, score
-            MATCH p1 = (entryTerm)-[HAS_TERM]->+(term:Term)-[d:DEFINED]->(target)
-            OPTIONAL MATCH p2 = (target)-[hc:HAS_COLUMN]->(c:Column)
-            RETURN DISTINCT p1, p2
+            MATCH (entryTerm)-[:HAS_TERM*0..]->(:Term)-[:DEFINES|HAS_COLUMN*1..2]->(c:Column)
+            MATCH (c)<-[:HAS_COLUMN]-(table:Table)
+            RETURN DISTINCT table
             }
-WITH collect(p1)+collect(p2) as allpath
+WITH collect(table) as tables
+UNWIND tables as sourceTable
+UNWIND tables as targetTable
+WITH sourceTable, targetTable
+CALL (sourceTable, targetTable) {
+  OPTIONAL MATCH links = (sourceTable)-->(:Column)-[:HAS_FOREIGN_KEY|ON_COLUMN]-(:ForeignKey)-[:HAS_FOREIGN_KEY|ON_COLUMN]-(:Column)<--(targetTable)
+  RETURN links
+  UNION 
+  OPTIONAL MATCH links = (sourceTable)-->(:Column)-[:REFERENCES]-(:Column)<--(targetTable)
+  RETURN links
+}
+WITH links, sourceTable as table
+MATCH p=(:Schema)-[:CONTAINS_TABLE]->(table)-[:HAS_COLUMN]->(column:Column)
+OPTIONAL MATCH termCol = (:Term)-[:HAS_TERM*0..]->(:Term)-[:DEFINES]->(column)
+OPTIONAL MATCH termTable = (:Term)-[:HAS_TERM*0..]->(:Term)-[:DEFINES]->(table)
+WITH collect(links)+collect(p)+collect(termCol)+collect(termTable) as allpath
 UNWIND allpath as path
 CALL (path) {
     WITH nodes(path) as nodes
     UNWIND nodes as node
-    RETURN "NODE" as type, elementId(node) as id, labels(node)[0] as label, node.name as name, "" as source, "" as target
+    RETURN "NODE" as class, elementId(node) as id, labels(node) as labels, "" as type, "" as source, "" as target, apoc.map.removeKey(properties(node), "embedding") as properties
     UNION
     WITH relationships(path) as rels
     UNWIND rels as rel
-    RETURN "REL"  as type, "" as id, type(rel) as label, "" as name, elementId(startNode(rel)) AS source, elementId(endNode(rel)) AS target
+    RETURN "REL"  as class, "" as id, [] as labels, type(rel) as type, elementId(startNode(rel)) AS source, elementId(endNode(rel)) AS target, properties(rel) as properties
 }
-RETURN type, id, label, name, source, target
+RETURN DISTINCT class, id, labels, type, source, target, properties
 """
 
 def get_context_graph(driver: neo4j.Driver, embedding: list) -> pd.DataFrame:

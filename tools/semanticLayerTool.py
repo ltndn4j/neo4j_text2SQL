@@ -31,14 +31,14 @@ def create_semantic_tools(driver: neo4j.Driver, context: dict = None):
             WHERE score > 0.6
             WITH node as column, score
             MATCH (column)<-[:HAS_COLUMN]-(table:Table)
-            OPTIONAL MATCH (term:Term)-[:DEFINED]->(column)
+            OPTIONAL MATCH (term:Term)-[:DEFINES]->(column)
             RETURN DISTINCT table, column.tableName as table_name, column.name as column_name
             UNION
             CALL db.index.vector.queryNodes('term_similarity', 10, $queryEmbedding)
             YIELD node, score
             WHERE score > 0.6
             WITH node as term, score
-            MATCH (term)-[HAS_TERM]->+(:Term)-[:DEFINED]->(target)
+            MATCH (term)-[HAS_TERM]->+(:Term)-[:DEFINES]->(target)
             OPTIONAL MATCH (target)-[:HAS_COLUMN]->(c:Column)
             WITH term, target, c, score
             RETURN DISTINCT
@@ -73,14 +73,14 @@ def create_semantic_tools(driver: neo4j.Driver, context: dict = None):
             s.name as schema,
             table_name,
             table_comment,
-            [(t:Term)-[:DEFINED]->(:Table {name:table_name}) | t.name + ": " + t.definition] as table_description,
+            [(t:Term)-[:DEFINES]->(:Table {name:table_name}) | t.name + ": " + t.definition] as table_description,
             collect(DISTINCT {
             source:{schema:s.name, table:col.tableName, column:col.name},
             target:{schema:schemaLinkedCol.name, table:linkedColumn.tableName, column:linkedColumn.name}
             }) as table_joins,
             collect(DISTINCT {
             column_name:column_name, 
-            description:[(t:Term)-[:DEFINED]->(:Column {tableName:table_name, name:column_name}) | t.name + ": " + t.definition],
+            description:[(t:Term)-[:DEFINES]->(:Column {tableName:table_name, name:column_name}) | t.name + ": " + t.definition],
             values: [(:Column {tableName:table_name, name:column_name})-[:HAS_VALUE]->(v:Value) | v.value]
             }) as columns
             RETURN {
@@ -94,6 +94,10 @@ def create_semantic_tools(driver: neo4j.Driver, context: dict = None):
             } as result
         """
         with driver.session() as session:
+            session.run(
+                "MERGE (le:LastExecution) SET le.toolEmbedding = $embedding, le.agentQuestion = $q", 
+                {"embedding": embedding, "q": q}
+            )
             result = session.run(cypher, queryEmbedding=embedding)
             result_list = [row.data()['result'] for row in result]
             return json.dumps(result_list)

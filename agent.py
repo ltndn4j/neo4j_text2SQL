@@ -1,5 +1,4 @@
 import os
-import json
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 
 import tools.postgresqlTool as db
@@ -18,12 +17,12 @@ load_dotenv(override=True)
 
 PG_SCHEMA = "employees"
 
-SYSTEM_PROMPT = """You are a Text2SQL agent and are tasked with answering questions about our dataset on employees. 
+SYSTEM_PROMPT = """You are a Text2SQL agent and are tasked with answering questions about our Human Resources datasets. 
 Use the metadata to collect relevant schema to inform your SQL queries.
 Rules:
 * Return result to the user in a readable format in plain text
 * Don't ask for clarification, use the metadata and query the database to answer the question
-* Always ensure that tables are qualified with project and dataset names
+* Always ensure that tables are qualified with the full name
 * Always ensure you have the appropriate schema from the Metadata before write a query
 * Don't display the SQL query to the user, only the results of the query execution
 """

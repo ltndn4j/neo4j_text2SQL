@@ -13,8 +13,6 @@ import pandas as pd
 import io
 import httpx
 import streamlit as st
-from IPython.display import HTML
-from neo4j_viz import VisualizationGraph
 from neo4j_viz.colors import ColorSpace
 from neo4j_viz.pandas import from_dfs
 
@@ -30,8 +28,8 @@ AVATAR = {
 # Curated example questions with reference SQL (expected answer query).
 QUESTION_SUGGESTIONS = [
     {
-        "question": "How many employees are there in the company ?",
-        "reference_sql": "SELECT COUNT(*) AS employee_count FROM employees.employee;",
+        "question": "How many divisions are there in the company ?",
+        "reference_sql": "SELECT COUNT(*) AS division_count FROM employees.department;",
     },
     {
         "question": "What is the average salary and its related satisfaction for men and women ?",
@@ -39,7 +37,7 @@ QUESTION_SUGGESTIONS = [
   count(ss.employee_email) as survey_answer,
   count(e.id) as employee_count,
   AVG(s.amount) AS average_salary,
-  AVG(ss.payroll_score) AS average_satisfaction
+  AVG(ss.payroll_score) AS average_payroll_satisfaction
 FROM employees.employee e
 JOIN employees.salary s ON s.employee_id = e.id  AND s.from_date <= DATE '2026-04-15' AND s.to_date > DATE '2026-04-16'
 LEFT JOIN hr_survey.satisfaction_survey ss ON ss.employee_email = e.email
@@ -97,25 +95,29 @@ def get_semantic_layer_model(api_base: str) -> tuple[pd.DataFrame, pd.DataFrame]
         r = client.post(f"{api_base}/context-graph", json={})
         r.raise_for_status()
         df = pd.read_parquet(io.BytesIO(r.content))
-        sources = df[['sourceNodeId', 'sourceLabels']].rename(columns={'sourceNodeId': 'id', 'sourceLabels': 'caption'})
-        targets = df[['targetNodeId', 'targetLabels']].rename(columns={'targetNodeId': 'id', 'targetLabels': 'caption'})
+        sources = df[['sourceNodeId', 'sourceLabels', 'sourceNodeProperties']]
+        sources = sources.rename(columns={'sourceNodeId': 'id', 'sourceLabels': 'labels', 'sourceNodeProperties': 'properties'})
+        targets = df[['targetNodeId', 'targetLabels', 'endNodeProperties']]
+        targets = targets.rename(columns={'targetNodeId': 'id', 'targetLabels': 'labels', 'endNodeProperties': 'properties'})
         combined_df = pd.concat([sources, targets], ignore_index=True)
         nodes_df = combined_df.drop_duplicates(subset=['id'])
-        rels_df = df[['relationshipType', 'sourceNodeId', 'targetNodeId']].rename(columns={
-            'relationshipType': 'caption',
+        rels_df = df[['relationshipType', 'sourceNodeId', 'targetNodeId', 'relProperties']].rename(columns={
+            'relationshipType': 'type',
             'sourceNodeId': 'source',
-            'targetNodeId': 'target'
+            'targetNodeId': 'target',
+            'relProperties': 'properties'
         })
         return nodes_df, rels_df
 
 def get_context_graph(api_base: str, embedding: list) -> tuple[pd.DataFrame, pd.DataFrame]:
+    node_cols = ["id", "labels", "properties"]
+    rel_cols = ["type", "source", "target", "properties"]
     with httpx.Client(timeout=300.0) as client:
         r = client.post(f"{api_base}/context-graph", json={"embedding": embedding})
-        r.raise_for_status()
         df = pd.read_parquet(io.BytesIO(r.content))
-        nodes_df = pd.DataFrame({'id':[1,2], 'caption':['Context Graph', 'In progress']})
-        rels_df = pd.DataFrame({'source':[1], 'target':[2], 'caption':['IS']})
-        return nodes_df, rels_df
+        nodes_df = df.loc[df["class"] == "NODE", node_cols].copy()
+        rels_df = df.loc[df["class"] == "REL", rel_cols].copy()
+        return nodes_df.reset_index(drop=True), rels_df.reset_index(drop=True)
 
 def _accuracy_answer_icon(average_accuracy: float) -> str:
     if average_accuracy >= 0.95:
@@ -126,11 +128,11 @@ def _accuracy_answer_icon(average_accuracy: float) -> str:
         return "🟠"
     return "🔴"
 
-@st.cache_data
-def create_visualization_graph(nodes_df: pd.DataFrame, rels_df: pd.DataFrame) -> VisualizationGraph:
+def create_visualization_graph(nodes_df: pd.DataFrame, rels_df: pd.DataFrame) -> str:
+    nodes_df['labelColor'] = nodes_df['labels'].apply(lambda x: x[0] if x else None)
     vg = from_dfs(nodes_df, rels_df)
     vg.color_nodes(
-        property="caption",
+        property="labelColor",
         colors={
             "Database":"#a964f6", "Schema": "#0020ff", "Table": "#6d98cb", "Column": "#57c7e3", 
             "Constraint":"#f16667", "ForeignKey":"#f79767", "Index":"#ffc454",
@@ -139,14 +141,27 @@ def create_visualization_graph(nodes_df: pd.DataFrame, rels_df: pd.DataFrame) ->
         color_space=ColorSpace.DISCRETE
     )
     vg.color_relationships(
-        property="caption",
+        property="type",
         colors={"REFERENCES": "#00ffb9"}, 
         color_space=ColorSpace.DISCRETE
     )
-    refLinks = [rel for rel in vg.relationships if rel.properties["caption"] == "REFERENCES"]
-    for refLink in refLinks:
-        refLink.width = 4
-    return vg
+    for node in vg.nodes:
+        properties = {"labels": node.properties.get("labels").tolist()}
+        for key, value in node.properties["properties"].items():
+            if value is not None:
+                properties[key] = value
+        node.properties = properties
+    for rel in vg.relationships:
+        type = rel.properties.get("type")
+        if rel.properties.get("properties") is not None:
+            rel.properties = rel.properties.get("properties")
+        else:
+            rel.properties = {}
+        rel.properties["type"] = type
+        if rel.properties.get("type") == "REFERENCES":
+            rel.width = 4
+    html = vg.render(height=f"{CONTENT_HEIGHT_PX-39}px", theme=st.context.theme.type).data
+    return html
 
 api_base = os.environ.get("API_BASE", "http://127.0.0.1:8000").rstrip("/")
 try:
@@ -338,6 +353,9 @@ with col_chat:
                                 nodes_df, rels_df = get_context_graph(api_base, embeddings)
                                 st.session_state.context_graph_nodes = nodes_df
                                 st.session_state.context_graph_rels = rels_df
+                        else:
+                            st.session_state.context_graph_nodes = None
+                            st.session_state.context_graph_rels = None
 
                         if (st.session_state.answer_validation and pending_reference_sql and sql_query):
                             progress_text = "Validating answer accuracy..."
@@ -413,11 +431,8 @@ with col_viz:
         if (st.session_state.context_graph_nodes is not None):
             nodes_df = st.session_state.context_graph_nodes
             rels_df = st.session_state.context_graph_rels
-            vg = create_visualization_graph(nodes_df, rels_df)
-            st.iframe(
-                vg.render(height=f"{CONTENT_HEIGHT_PX-39}px", theme=st.context.theme.type).data,
-                height="content"
-            )
+            html = create_visualization_graph(nodes_df, rels_df)
+            st.iframe(html,height="content")
         else:
             st.caption(
                 "Ask a question using neo4j semantic layer (can be changed in settings) to see the context graph."

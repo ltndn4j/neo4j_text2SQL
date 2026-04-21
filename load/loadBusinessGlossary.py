@@ -22,7 +22,7 @@ def load_terms(session: neo4j.GraphDatabase.driver, parentTerm: str, business_gl
             nodeDefined = "MERGE (x:Column {tableName: $table_name, name: $column_name})"
         else:
             nodeDefined = "MERGE (x:Table {name: $table_name})"
-        termMapping = f"{nodeDefined} MERGE (t)-[:DEFINED]->(x)" 
+        termMapping = f"{nodeDefined} MERGE (t)-[:DEFINES]->(x)" 
       
       cypher=f"""
           MERGE (t:Term {{name: $term}})

@@ -10,7 +10,6 @@ Pair with Streamlit (terminal 2); set API_BASE to this server's URL.
 import json
 import os
 import io
-import pandas as pd
 from fastapi import Response
 from typing import Optional
 from contextlib import asynccontextmanager
