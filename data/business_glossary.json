@@ -2,38 +2,38 @@
     {
       "term": "Employee",
       "definition": "An individual currently or previously hired by the organization to perform specific roles or duties.",
-      "technical_mapping": {
+      "technical_mappings": [{
         "table": "employee"
-      }
+      }]
     },
     {
       "term": "Department",
       "definition": "A distinct functional unit or division within the organization.",
-      "technical_mapping": {
+      "technical_mappings": [{
         "table": "department"
-      }
+      }]
     },
     {
       "term": "Department Assignment",
       "definition": "The historical and current record of an employee's allocation to a specific functional department including the period during which the assignment is considered active and valid.",
-      "technical_mapping": {
+      "technical_mappings": [{
         "table": "department_employee"
-      }
+      }]
     },
     {
       "term": "Department Manager",
       "definition": "An employee designated with leadership and oversight responsibilities for a specific department within a defined timeframe.",
-      "technical_mapping": {
+      "technical_mappings": [{
         "table": "department_manager"
-      }
+      }]
     },
     {
       "term": "Job Title",
       "definition": "The formal designation or rank held by an employee, reflecting their professional role and responsibilities (e.g., 'Senior Engineer').",
-      "technical_mapping": {
+      "technical_mappings": [{
         "table": "title",
         "column": "title"
-      }
+      }]
     },
     {
       "term": "Total Rewards",
@@ -46,10 +46,14 @@
             {
               "term": "Base Salary",
               "definition": "The fixed amount of monetary compensation paid to an employee for a specific period of their employment.",
-              "technical_mapping": {
+              "technical_mappings": [{
                 "table": "salary",
                 "column": "amount"
-              }
+              },
+              {
+                "table": "satisfaction_survey",
+                "column": "payroll_score"
+              }]
             },
             {
               "term": "Bonus",
@@ -59,24 +63,28 @@
         },
         {
           "term": "Benefits",
-          "definition": "Overseeing health insurance, retirement plans, and wellness perks"
+          "definition": "Overseeing health insurance, retirement plans, and wellness perks",
+          "technical_mappings": [{
+            "table": "satisfaction_survey",
+            "column": "benefits_score"
+          }]
         }
       ]
     },
     {
       "term": "Hire Date",
       "definition": "The specific calendar date on which an individual officially began their employment contract with the organization.",
-      "technical_mapping": {
+      "technical_mappings": [{
         "table": "employee",
         "column": "hire_date"
-      }
+      }]
     },
     {
       "term": "Employee Gender",
       "definition": "The gender identity of the employee as recorded for administrative and legal compliance purposes.",
-      "technical_mapping": {
+      "technical_mappings": [{
         "table": "employee",
         "column": "gender"
-      }
+      }]
     }
 ]

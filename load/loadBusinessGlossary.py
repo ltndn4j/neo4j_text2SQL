@@ -11,41 +11,50 @@ EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIMENSIONS = 1536
 
 def load_terms(session: neo4j.GraphDatabase.driver, parentTerm: str, business_glossary: list):
-  for term in business_glossary:
-      termMapping = ""
-      table_name = None
-      column_name = None
-      if term.get("technical_mapping"):
-        table_name = term["technical_mapping"]["table"]
-        if term["technical_mapping"].get("column"): 
-            column_name = term["technical_mapping"]["column"]
-            nodeDefined = "MERGE (x:Column {tableName: $table_name, name: $column_name})"
-        else:
-            nodeDefined = "MERGE (x:Table {name: $table_name})"
-        termMapping = f"{nodeDefined} MERGE (t)-[:DEFINES]->(x)" 
-      
-      cypher=f"""
-          MERGE (t:Term {{name: $term}})
-          {f"MERGE (p:Term {{name: $parentTerm}}) MERGE (p)-[:HAS_TERM]->(t)" if parentTerm else ""}
-          SET t.definition = $definition
-          SET t.embedding = $embedding
-          {termMapping}
-      """
-      embedding = openai.embeddings.create(
-          input=f"{term['term']}: {term['definition']}",
-          model=EMBEDDING_MODEL
-      ).data[0].embedding
-      params={
-          "parentTerm": parentTerm,
-          "term": term["term"],
-          "definition": term["definition"],
-          "embedding": embedding,
-          "table_name": table_name,
-          "column_name": column_name
-      }
-      session.run(cypher, params)
-      if term.get("terms"):
-        load_terms(session, term["term"], term["terms"])
+    for term in business_glossary:
+        table_name = None
+        column_name = None
+        embedding = openai.embeddings.create(
+            input=f"{term['term']}: {term['definition']}",
+            model=EMBEDDING_MODEL
+        ).data[0].embedding
+
+        cypher=f"""
+            MERGE (t:Term {{name: $term}})
+            {f"MERGE (p:Term {{name: $parentTerm}}) MERGE (p)-[:HAS_TERM]->(t)" if parentTerm else ""}
+            SET t.definition = $definition
+            SET t.embedding = $embedding
+        """
+        params={
+            "parentTerm": parentTerm,
+            "term": term["term"],
+            "definition": term["definition"],
+            "embedding": embedding
+        }
+        session.run(cypher, params)
+
+        if term.get("technical_mappings"):
+            for mapping in term["technical_mappings"]:
+                table_name = mapping["table"]
+                if mapping.get("column"): 
+                    column_name = mapping["column"]
+                    targetNode = "MERGE (x:Column {tableName: $table_name, name: $column_name})"
+                else:
+                    targetNode = "MERGE (x:Table {name: $table_name})"
+                cypher=f"""
+                    MERGE (t:Term {{name: $term}})
+                    {targetNode} 
+                    MERGE (t)-[:DEFINES]->(x)
+                """
+                params={
+                    "term": term["term"],
+                    "table_name": table_name,
+                    "column_name": column_name
+                }
+                session.run(cypher, params)
+        
+        if term.get("terms"):
+            load_terms(session, term["term"], term["terms"])
 
 def load():
     #Connect to the Neo4j database
