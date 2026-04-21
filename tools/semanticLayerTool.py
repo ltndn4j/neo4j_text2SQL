@@ -24,6 +24,7 @@ def create_semantic_tools(driver: neo4j.Driver, context: dict = None):
         embedding = openai.embeddings.create(input=q, model=EMBEDDING_MODEL).data[0].embedding
         if isinstance(context, dict):
             context["embedding"] = embedding
+            context["question"] = q
         cypher="""
             CALL () {
             CALL db.index.vector.queryNodes('column_similarity', 10, $queryEmbedding)

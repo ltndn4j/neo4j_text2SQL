@@ -163,6 +163,18 @@ def create_visualization_graph(nodes_df: pd.DataFrame, rels_df: pd.DataFrame) ->
     html = vg.render(height=f"{CONTENT_HEIGHT_PX-39}px", theme=st.context.theme.type).data
     return html
 
+def _fill_context_graph_placeholder(placeholder, message: str) -> None:
+    with placeholder.container():
+        with st.container(border=True):
+            if st.session_state.context_graph_nodes is not None:
+                nodes_df = st.session_state.context_graph_nodes
+                rels_df = st.session_state.context_graph_rels
+                html = create_visualization_graph(nodes_df, rels_df)
+                st.iframe(html, height="content")
+            else:
+                st.caption(message)
+
+
 api_base = os.environ.get("API_BASE", "http://127.0.0.1:8000").rstrip("/")
 try:
     if hasattr(st, "secrets") and "API_BASE" in st.secrets:
@@ -272,6 +284,12 @@ prompt = pending_prompt or chat_input
 from_example_question = pending_prompt is not None
 
 col_chat, col_viz = st.columns([3, 2], gap="medium")
+with col_viz:
+    context_graph_area = st.empty()
+    _fill_context_graph_placeholder(
+        context_graph_area,
+        "Ask a question using neo4j semantic layer (can be changed in settings) to see the context graph."
+    )
 with col_chat:
     with st.container(height=CONTENT_HEIGHT_PX, gap="xxsmall"):
         for msg in st.session_state.messages:
@@ -291,6 +309,11 @@ with col_chat:
                         st.json(msg["sql_validation"])
     
         if prompt:
+            st.session_state.context_graph_nodes = None
+            st.session_state.context_graph_rels = None
+            message = "Processing question..."
+            message = message + "The graph will be updated when the question is answered." if api_mode == "agent" else message
+            _fill_context_graph_placeholder(context_graph_area, message)
             if from_example_question or st.session_state.suppress_example_buttons:
                 prev_footer = st.session_state.get("_suggestions_footer")
                 if prev_footer is not None:
@@ -350,12 +373,10 @@ with col_chat:
     
                         # Context graph for the right column (keep last graph until a new one succeeds)
                         if embeddings:
-                                nodes_df, rels_df = get_context_graph(api_base, embeddings)
-                                st.session_state.context_graph_nodes = nodes_df
-                                st.session_state.context_graph_rels = rels_df
-                        else:
-                            st.session_state.context_graph_nodes = None
-                            st.session_state.context_graph_rels = None
+                            nodes_df, rels_df = get_context_graph(api_base, embeddings)
+                            st.session_state.context_graph_nodes = nodes_df
+                            st.session_state.context_graph_rels = rels_df
+                        _fill_context_graph_placeholder(context_graph_area, "No context graph for the selected settings.")
 
                         if (st.session_state.answer_validation and pending_reference_sql and sql_query):
                             progress_text = "Validating answer accuracy..."
@@ -425,15 +446,3 @@ with col_chat:
                         on_click=_queue_suggestion,
                         args=(item["question"], item["reference_sql"]),
                     )
-
-with col_viz:
-    with st.container(border=True):
-        if (st.session_state.context_graph_nodes is not None):
-            nodes_df = st.session_state.context_graph_nodes
-            rels_df = st.session_state.context_graph_rels
-            html = create_visualization_graph(nodes_df, rels_df)
-            st.iframe(html,height="content")
-        else:
-            st.caption(
-                "Ask a question using neo4j semantic layer (can be changed in settings) to see the context graph."
-            )

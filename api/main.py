@@ -60,8 +60,9 @@ def _serialize_sql_query(steps: list):
         return toolAction_SQL[-1].tool_input.get('query')
     return None
 
-def _serialize_tools(steps: list):
-    tools = [action.tool for (action, result) in steps]
+def _serialize_tools(steps: list, question: Optional[str] = None):
+    tools = ["Question rephrased by agent: " + question] if question else []
+    tools.extend([action.tool for (action, result) in steps])
     return tools
 
 def clean_answer(out: str):
@@ -158,7 +159,7 @@ async def chat(body: ChatRequest):
         answer=answer,
         usage=_serialize_usage(cb, body.yaml_agent), 
         sql_query=_serialize_sql_query(steps), 
-        tools=_serialize_tools(steps),
+        tools=_serialize_tools(steps, context.get("question", None)),
         embeddings=context.get("embedding", None)
     )
 
