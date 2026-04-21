@@ -124,7 +124,7 @@ def get_context_graph(api_base: str, embedding: list) -> tuple[pd.DataFrame, pd.
     node_cols = ["id", "labels", "properties"]
     rel_cols = ["type", "source", "target", "properties"]
     with httpx.Client(timeout=300.0) as client:
-        r = client.post(f"{api_base}/context-graph", json={"embedding": embedding, "threshold": THRESHOLD})
+        r = client.post(f"{api_base}/context-graph", json={"embedding": embedding, "threshold": st.session_state.threshold})
         df = pd.read_parquet(io.BytesIO(r.content))
         nodes_df = df.loc[df["class"] == "NODE", node_cols].copy()
         rels_df = df.loc[df["class"] == "REL", rel_cols].copy()
@@ -205,6 +205,8 @@ if "answer_validation" not in st.session_state:
     st.session_state.answer_validation = True
 if "validation_loop_count" not in st.session_state:
     st.session_state.validation_loop_count = 0
+if "threshold" not in st.session_state:
+    st.session_state.threshold = THRESHOLD
 if "show_sql_query" not in st.session_state:
     st.session_state.show_sql_query = False
 if "show_tools" not in st.session_state:
@@ -342,6 +344,13 @@ with _settings_col:
                 help="Neo4j Agent uses the Neo4j semantic layer; YAML agent & LLM uses the schema-backed Text2SQL agent/pipeline.",
                 key="api_mode",
             )
+            if st.session_state.show_hidden_backends:
+                st.session_state.threshold = st.select_slider(
+                    "Semantic similarity threshold",
+                    options=[0, 0.2, 0.4, 0.5, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85],
+                    value=THRESHOLD,
+                    disabled=api_mode != "agent",
+                )
 
 pending_prompt = st.session_state.pop("pending_prompt", None)
 pending_reference_sql = st.session_state.pop("pending_reference_sql", None)
@@ -408,7 +417,7 @@ with col_chat:
                                 chat_json = {
                                     "message": prompt,
                                     "yaml_agent": api_mode == "yaml_agent",
-                                    "threshold": THRESHOLD,
+                                    "threshold": st.session_state.threshold,
                                 }
                                 r = client.post(f"{api_base}{endpoint}", json=chat_json)
                         r.raise_for_status()
