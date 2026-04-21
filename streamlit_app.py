@@ -171,9 +171,9 @@ def create_visualization_graph(nodes_df: pd.DataFrame, rels_df: pd.DataFrame) ->
 def _fill_context_graph_placeholder(placeholder, message: str) -> None:
     with placeholder.container():
         with st.container(border=True):
-            if st.session_state.context_graph_nodes is not None:
-                nodes_df = st.session_state.context_graph_nodes
-                rels_df = st.session_state.context_graph_rels
+            if st.session_state.graph_nodes is not None:
+                nodes_df = st.session_state.graph_nodes
+                rels_df = st.session_state.graph_rels
                 html = create_visualization_graph(nodes_df, rels_df)
                 st.iframe(html, height="content")
             else:
@@ -203,10 +203,16 @@ if "show_sql_query" not in st.session_state:
     st.session_state.show_sql_query = False
 if "show_tools" not in st.session_state:
     st.session_state.show_tools = False
-if "context_graph_nodes" not in st.session_state:
-    st.session_state.context_graph_nodes = None
-if "context_graph_rels" not in st.session_state:
-    st.session_state.context_graph_rels = None
+if "graph_nodes" not in st.session_state:
+    st.session_state.graph_nodes = None
+if "graph_rels" not in st.session_state:
+    st.session_state.graph_rels = None
+if "saved_context_graph_nodes" not in st.session_state:
+    st.session_state.saved_context_graph_nodes = None
+if "saved_context_graph_rels" not in st.session_state:
+    st.session_state.saved_context_graph_rels = None
+if "context_graph_displayed" not in st.session_state:
+    st.session_state.context_graph_displayed = False
 
 st.markdown(
     """
@@ -220,24 +226,44 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+_header_was_suppressed = st.session_state.suppress_example_buttons
 
 _title_col, _semantic_graph_col, _settings_col = st.columns([20, 1, 1], vertical_alignment="bottom")
 with _title_col:
     st.title("Talk to your HR data")
 with _semantic_graph_col:
     with st.container(horizontal_alignment="right"):
-        if st.button(
+        icon = (
+            ":material/graph_3:"
+            if st.session_state.saved_context_graph_nodes is not None
+            else ":material/graph_2:"
+        )
+        button = st.button(
             "",
-            help="Display the semantic layer model",
-            icon=":material/graph_3:",
-            use_container_width=True,
-        ):
-            nodes_df, rels_df = get_semantic_layer_model(api_base)
-            st.session_state.context_graph_nodes = nodes_df
-            st.session_state.context_graph_rels = rels_df
+            key="show_graph",
+            help="Display the semantic layer model/context graph",
+            icon=icon,use_container_width=True,
+            disabled=st.session_state.suppress_example_buttons
+        )
+        if button:
+            if st.session_state.saved_context_graph_nodes is not None:
+                st.session_state.graph_nodes = st.session_state.saved_context_graph_nodes
+                st.session_state.graph_rels = st.session_state.saved_context_graph_rels
+                st.session_state.saved_context_graph_nodes = None
+                st.session_state.saved_context_graph_rels = None
+                st.session_state.context_graph_displayed = True
+            else:
+                if st.session_state.context_graph_displayed:
+                    st.session_state.saved_context_graph_nodes = st.session_state.graph_nodes
+                    st.session_state.saved_context_graph_rels = st.session_state.graph_rels
+                nodes_df, rels_df = get_semantic_layer_model(api_base)
+                st.session_state.graph_nodes = nodes_df
+                st.session_state.graph_rels = rels_df
+                st.session_state.context_graph_displayed = False
+            st.rerun()
 with _settings_col:
     with st.container(horizontal_alignment="right"):
-        with st.popover("⚙️", help="Settings"):
+        with st.popover("⚙️", help="Settings", disabled=st.session_state.suppress_example_buttons):
             st.markdown("**Show under assistant messages**")
             st.session_state.answer_validation = st.toggle(
                 "Check Answer accuracy",
@@ -315,8 +341,8 @@ with col_chat:
                         st.json(msg["sql_validation"])
     
         if prompt:
-            st.session_state.context_graph_nodes = None
-            st.session_state.context_graph_rels = None
+            st.session_state.graph_nodes = None
+            st.session_state.graph_rels = None
             message = "Processing question..."
             message = message + "The graph will be updated when the question is answered." if api_mode == "agent" else message
             _fill_context_graph_placeholder(context_graph_area, message)
@@ -380,8 +406,9 @@ with col_chat:
                         # Context graph for the right column (keep last graph until a new one succeeds)
                         if embeddings:
                             nodes_df, rels_df = get_context_graph(api_base, embeddings)
-                            st.session_state.context_graph_nodes = nodes_df
-                            st.session_state.context_graph_rels = rels_df
+                            st.session_state.graph_nodes = nodes_df
+                            st.session_state.graph_rels = rels_df
+                            st.session_state.context_graph_displayed = True
                         _fill_context_graph_placeholder(context_graph_area, "No context graph for the selected settings.")
 
                         if (st.session_state.answer_validation and pending_reference_sql and sql_query):
@@ -438,6 +465,8 @@ with col_chat:
                 )
             finally:
                 st.session_state.suppress_example_buttons = False
+        if _header_was_suppressed: 
+            st.rerun()
         suggestions_slot = st.empty()
         st.session_state._suggestions_footer = suggestions_slot
         if st.session_state.suppress_example_buttons:
