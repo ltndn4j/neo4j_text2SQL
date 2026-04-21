@@ -296,7 +296,7 @@ with _settings_col:
             )
             api_mode = st.radio(
                 "Backend",
-                options=["yaml_llm", "yaml_agent", "agent"],
+                options=["yaml_agent", "agent", "yaml_llm"],
                 format_func=lambda x: (
                     "Neo4j Semantic Layer agent"
                     if x == "agent"
@@ -473,7 +473,7 @@ with col_chat:
             suggestions_slot.empty()
         else:
             with suggestions_slot.container():
-                st.caption("Example questions")
+                st.caption("Example questions (Only suggested questions can have the accuracy checked)")
                 for i, item in enumerate(QUESTION_SUGGESTIONS):
                     st.button(
                         item["question"],
