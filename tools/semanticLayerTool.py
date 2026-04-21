@@ -14,7 +14,7 @@ def create_semantic_tools(driver: neo4j.Driver, context: dict = None):
     @tool
     def glossary_columns_and_joins(query: str) -> str:
         """
-        Get the metadata schema by semantic similarity to the query.
+        Get the metadata schema by semantic similarity to the query. Most likely the entry point to know how to query the dataset.
         Uses embedding based semantic similarity and graph traversal to find the most similar metadata schema.
         """
         q = (query or "").strip()

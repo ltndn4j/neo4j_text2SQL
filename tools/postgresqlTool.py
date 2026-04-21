@@ -44,7 +44,7 @@ def create_db_tools(conn: psycopg2.extensions.connection):
     @tool
     def list_schema(pg_schema: str) -> str:
         """Return all table names and columns in the database schema (PostgreSQL).
-        Call this first when you need the full catalog of tables and columns for writing SQL."""
+        Call this when you need the full catalog of tables and columns for writing SQL."""
         rows = []
         try:
             with conn.cursor() as cur:

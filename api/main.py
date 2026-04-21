@@ -62,7 +62,7 @@ def _serialize_sql_query(steps: list):
 
 def _serialize_tools(steps: list, question: Optional[str] = None):
     tools = ["Question rephrased by agent: " + question] if question else []
-    tools.extend([action.tool for (action, result) in steps])
+    tools.extend(["Tool used: " + action.tool for (action, result) in steps])
     return tools
 
 def clean_answer(out: str):
