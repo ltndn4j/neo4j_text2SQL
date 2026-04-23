@@ -1,11 +1,8 @@
 import csv
 import re
 from pathlib import Path
-
 import neo4j
 from dotenv import load_dotenv
-from aura.setupAura import getInstanceId
-import os
 
 load_dotenv(override=True)
 
@@ -139,7 +136,8 @@ def merge_references(driver: neo4j.Driver, pairs: list[tuple[str, str, str, str]
             session.run(cypher, {"t1": t1, "col1": col1, "t2": t2, "col2": col2})
 
 
-def load():
+def load(driver: neo4j.GraphDatabase.driver, initialize: bool = False):
+    print("Analyzing users behavior in Database transactions log to enrich possible joins in the semantic layer....")
     if not TRANSACTION_LOG_CSV.is_file():
         raise FileNotFoundError(f"Missing CSV: {TRANSACTION_LOG_CSV}")
 
@@ -148,14 +146,4 @@ def load():
         for p in extract_join_column_pairs(sql):
             all_pairs.add(p)
 
-    #Connect to the Neo4j database
-    neo4j_config = getInstanceId("875a99c2-d2e2-4bf6-8ddb-78dcc7d2fecc","text2sql-instance")
-    neo4j_uri = neo4j_config["neo4j_uri"]
-    neo4j_username = neo4j_config["neo4j_username"]
-    neo4j_password = neo4j_config["neo4j_password"] or os.getenv('neo4j_password')
-    driver = neo4j.GraphDatabase.driver(neo4j_uri, auth=(neo4j_username, neo4j_password))
-
-    try:
-        merge_references(driver, sorted(all_pairs))
-    finally:
-        driver.close()
+    merge_references(driver, sorted(all_pairs))

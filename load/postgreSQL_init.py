@@ -10,18 +10,19 @@ load_dotenv(override=True)
 
 DOMAIN = "@semantictech.com"
 
-def createDB():
+def createDB(initialize: bool = False):
+    print("Connecting to PostgreSQL database....")
     conn = psycopg2.connect(
-        host=os.getenv("postgres_host"),
-        database=os.getenv("postgres_database") or "postgres",
-        user=os.getenv("postgres_username"),
-        password=os.getenv("postgres_password"),
-        port=os.getenv("postgres_port") or 5432,
+        host=os.getenv("POSTGRES_HOST"),
+        database=os.getenv("POSTGRES_DATABASE") or "postgres",
+        user=os.getenv("POSTGRES_USERNAME"),
+        password=os.getenv("POSTGRES_PASSWORD"),
+        port=os.getenv("POSTGRES_PORT") or 5432,
     )
     conn.autocommit = False
     try:
         #Initialize the database
-        if input("Do you want to drop all the PostgreSQL database before creating it (y/n) ? ") == "y":
+        if initialize or input("Do you want to drop all the PostgreSQL database before creating it (y/n) ? ") == "y":
             DROP_ALL = """
             DROP SCHEMA IF EXISTS employees CASCADE;
             DROP SCHEMA IF EXISTS payroll CASCADE;
@@ -43,19 +44,22 @@ def createDB():
             DROP SCHEMA IF EXISTS announcements CASCADE;
             """
             url = "https://raw.githubusercontent.com/h8/employees-database/refs/heads/master/employees_data.sql.bz2"
+            print("Downloading database data from GitHub....")
             response = requests.get(url)
             response.raise_for_status()
             sql_file = bz2.decompress(response.content).decode('utf-8')
-            
+
             #Split the file into the initial SQL and the copy statements to load with python instead of psql 
             first_copy_index = sql_file.find('COPY')
             initialSQL = sql_file[:first_copy_index]
             copy_blocks = sql_file[first_copy_index:]
             with conn.cursor() as cur:
                 #Drop all the schemas
+                print("Dropping all the target schemas if exists....")
                 cur.execute(DROP_ALL)
                 
                 #Load the initial SQL
+                print("Loading data in the database....")
                 cur.execute(initialSQL)
                 #Load all the copy statements with python instead of psql
                 parts = re.split(r'\n\\\.\n', copy_blocks)
@@ -69,10 +73,10 @@ def createDB():
                 
                 #Commit the changes
                 conn.commit()
-            print("Database reset successfully with employees data.")
+            print("Database backup restored successfully.")
 
         with conn.cursor() as cur:
-            if input("Do you want to refresh the email of the employees (y/n) ? ") == "y":
+            if initialize or input("Do you want to refresh the email of the employees (y/n) ? ") == "y":
                 cur.execute(
                     """
                     ALTER TABLE employees.employee
@@ -112,10 +116,10 @@ def createDB():
                 cur.execute("COMMENT ON TABLE employees.salary IS %s",(comment,),)
                 cur.execute("COMMENT ON TABLE employees.title IS %s",(comment,),)
                 conn.commit()
-                print(f"email column added; {updated} row(s) updated; tables with historical data description set.")
+                print(f"{updated} emails added on employees.employee table; tables with historical data description set.")
 
         with conn.cursor() as cur:
-            if input("Do you want to refresh the survey data (y/n) ? ") == "y":
+            if initialize or input("Do you want to refresh the survey data (y/n) ? ") == "y":
                 with open("data/addDBData.sql", "r") as file:
                     sql = file.read()
                     cur.execute(sql)
@@ -126,12 +130,16 @@ def createDB():
                 cur.execute(sql)
                 conn.commit()
                 print("New HR tables created successfully.")
+        
+        #Force PostgreSQL to compute statistics on all tables
+        with conn.cursor() as cur:
+            cur.execute("ANALYZE VERBOSE;")
+            conn.commit()
+        
+        print(f"Database '{os.getenv("POSTGRES_DATABASE")}' successfully initialized with employees data.")
 
     except Exception:
         conn.rollback()
         raise
     finally:
         conn.close()
-
-if __name__ == "__main__":
-    createDB()

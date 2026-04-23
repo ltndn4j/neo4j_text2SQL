@@ -6,9 +6,6 @@ import json
 EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIMENSIONS = 1536
 
-def get_neo4j_driver(neo4j_uri: str, neo4j_username: str, neo4j_password: str):
-    return neo4j.GraphDatabase.driver(neo4j_uri, auth=(neo4j_username, neo4j_password))
-
 def create_semantic_tools(driver: neo4j.Driver, threshold: float,context: dict = None):
 
     @tool

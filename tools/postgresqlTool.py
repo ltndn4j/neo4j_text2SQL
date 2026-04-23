@@ -6,11 +6,11 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 def get_db_connect():
-    host = os.getenv("postgres_host")
-    user = os.getenv("postgres_username")
-    pwd = os.getenv("postgres_password")
-    db = os.getenv("postgres_database") or "postgres"
-    port = os.getenv("postgres_port") or 5432
+    host = os.getenv("POSTGRES_HOST")
+    user = os.getenv("POSTGRES_USERNAME")
+    pwd = os.getenv("POSTGRES_PASSWORD")
+    db = os.getenv("POSTGRES_DATABASE") or "postgres"
+    port = os.getenv("POSTGRES_PORT") or 5432
     conn = psycopg2.connect(host=host, database=db, user=user, password=pwd, port=port)
     return conn
 

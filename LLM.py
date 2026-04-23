@@ -261,7 +261,7 @@ def compare_answer_accuracy(conn, columns_to_compare: str, reference_sql: str, g
     return json.loads(response.output_text)
 
 
-def main():
+def test_yaml_grounding():
     questions = [
         "How many employees are there in the company ?",
         "What is the average salary and the related satifaction on the compensation for man and woman in the company ?",
@@ -280,7 +280,7 @@ def main():
     finally:
         conn.close()
 
-def test_yaml_llm_question():
+def test_sql_result_loop():
 
     question = "What is the average salary and its related satisfaction for man and woman ?"
     sql_answer = """
@@ -320,5 +320,7 @@ def test_yaml_llm_question():
             conn = db.get_db_connect()
 
 if __name__ == "__main__":
-    main()
-    #test_yaml_llm_question()
+    print("Testing YAML Grounding")
+    test_yaml_grounding()
+    print("Testing RAW SQL Result 10 times")
+    test_sql_result_loop()

@@ -2,15 +2,14 @@ import os
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 
 import tools.postgresqlTool as db
-from tools.semanticLayerTool import get_neo4j_driver, create_semantic_tools
-from tools.dummyTool import create_dummy_tools
+from tools.semanticLayerTool import create_semantic_tools
 from tools.staticContextTool import create_static_context_tools
 
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
 
-from aura.setupAura import getInstanceId, PROJECT_ID, NEO4J_INSTANCE
+import neo4jHelpers.database as neo4jdb
 
 from dotenv import load_dotenv
 load_dotenv(override=True)
@@ -51,19 +50,11 @@ def create_executor(driver, db_conn, usage_callback, threshold: float, yaml_agen
         return_intermediate_steps=True,
     )
 
-
-def build_executor(cb):
-    neo4j_config = getInstanceId(PROJECT_ID, NEO4J_INSTANCE)
-    uri = neo4j_config["neo4j_uri"]
-    user = neo4j_config["neo4j_username"]
-    password = neo4j_config["neo4j_password"] or os.getenv("neo4j_password")
-    driver = get_neo4j_driver(uri, user, password)
-    db_conn = db.get_db_connect()
-    return create_executor(driver, db_conn, cb, 0.65), driver, db_conn
-
-def main():
+def test_agent():
     cb = UsageMetadataCallbackHandler()
-    executor, driver, db_conn = build_executor(cb)
+    executor = create_executor(driver, db_conn, cb, 0.65)
+    driver = neo4jdb.getDriver()
+    db_conn = db.get_db_connect()
     try:
         questions = [
             "How many employees are there in the company ?",
@@ -96,4 +87,4 @@ def main():
         db_conn.close()
 
 if __name__ == "__main__":
-    main()
+    test_agent()

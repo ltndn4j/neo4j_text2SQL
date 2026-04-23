@@ -8,23 +8,18 @@ Pair with Streamlit (terminal 2); set API_BASE to this server's URL.
 """
 
 import json
-import os
 import io
-from fastapi import Response
+from fastapi import Response, FastAPI, HTTPException
 from typing import Optional
 from contextlib import asynccontextmanager
-
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
-
 import tools.postgresqlTool as db
-from agent import NEO4J_INSTANCE, PROJECT_ID, create_executor
+from agent import create_executor
 from LLM import run_yaml_llm_question, compare_answer_accuracy
-from aura.setupAura import getInstanceId
-from tools.semanticLayerTool import get_neo4j_driver
+import neo4jHelpers.database as neo4jdb
 from semanticLayer import get_context_graph, get_model
 
 
@@ -79,11 +74,7 @@ def clean_answer(out: str):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_dotenv(override=True)
-    neo4j_config = getInstanceId(PROJECT_ID, NEO4J_INSTANCE)
-    uri = neo4j_config["neo4j_uri"]
-    user = neo4j_config["neo4j_username"]
-    password = neo4j_config["neo4j_password"] or os.getenv("neo4j_password")
-    driver = get_neo4j_driver(uri, user, password)
+    driver = neo4jdb.getDriver()
     conn = db.get_db_connect()
     app.state.neo4j_driver = driver
     app.state.db_conn = conn
