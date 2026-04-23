@@ -70,7 +70,12 @@ OPENAI_API_KEY=sk...
 It will provision in Neo4j aura a 2GB `AuraDB Professional` instance with the name defined on `NEO4J_INSTANCE_NAME`, if not exists.
 
 ### Load data
-Execute init.py file to load schema and data in postgreSQL, and then initialize the semantic layer in neo4j
+
+Execute `init.py` file to load schema and data in postgreSQL, and then initialize the semantic layer in neo4j.
+If you configured the `.env` file with `.env_initAuraPro.example`, add the password provided in the log during the load in the `.env` file :
+```
+NEO4J_PASSWORD=<Password displayed when aura instance is created>
+```
 
 ## Use the agents
 
