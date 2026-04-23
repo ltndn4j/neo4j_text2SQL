@@ -1,19 +1,31 @@
 # Neo4j Semantic Layer value (Text2SQL)
 
+## Introduction
+
+Business users today expect to query massive datasets across platforms like Snowflake, Databricks, Azure Fabric, or BigQuery using nothing but simple, natural language. To generate accurate SQL, these agents must fully understand the underlying database structure.
+
+The standard approach involves giving the agent a YAML or Markdown file containing all the database metadata. This creates several critical issues:
+* High Token Usage: Processing the entire file for every single query drives up costs and increases response times.
+* Contextual Noise: Flooding the LLM with irrelevant tables reduces accuracy and causes hallucinations, especially for complex questions.
+* Static Limitations: Flat files cannot easily capture dynamic relationships or real user behavior.
+
+A Neo4j Semantic Layer introduces a GraphRAG approach using Neo4j as a dynamic semantic layer. By moving from linear text files to a Knowledge Graph, the agent stops "reading" all the metadata and starts intelligently "navigating" your data architecture.
+
 ## Description and Goal
 
 This project aims to explain the added value of using a semantic layer with Neo4j to do text2SQL to answer question in natural language.
+
 The application let you ask questions using either an agent with a YAML or markdown description or an agent with neo4j to show the 2 main added values:
 * Reducing the number of tokens used to answer
 * Improving the accuracy of the answer, especially for complex questions.
 
-It uses the graphRAG approach by grounding the LLM with RDBMS metadata to produce valid SQL to get the relevant data to answer a question in natural language.
-The following information is stored in the semantic layer:
-* RDBMS structure (Schemas, Tables, Columns, Types)
-* RDBMS constraints (Foreign Keys, indexes)
-* RDBMS dictionary (Specific Values or few examples from the columns)
-* Business Glossary
+What is stored in the Semantic Layer? To ground the LLM with surgical precision and produce valid SQL, the Neo4j semantic layer stores:
+* RDBMS Structure: Schemas, Tables, Columns, and Types.
+* RDBMS Constraints: Foreign Keys and Indexes.
+* RDBMS Dictionary: Specific values or a few examples from the columns.
+* Business Glossary: Domain-specific terms and definitions and a basic taxonomy structure
 * Behavior of the users: joins from the RDBMS transaction logs which are not specified as Foreign Keys in the database.
+
 
 ![image](./image/application.png)
 
