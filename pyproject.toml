@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neo4j-text2sql"
+version = "0.1.0"
+description = "Neo4j semantic layer demo for Text2SQL."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "psycopg2-binary==2.9.11",
+    "neo4j==6.1.0",
+    "python-dotenv==1.1.1",
+    "langchain>=0.3.0,<0.4",
+    "langchain-openai>=0.2.0,<0.4",
+    "requests==2.32.5",
+    "neo4j-graphrag[openai]==1.14.0",
+    "pandas>=2.0.0",
+    "pyarrow>=15.0.0",
+    "db-dtypes>=1.2.0",
+    "fastapi>=0.115.0,<1.0",
+    "uvicorn[standard]>=0.30.0,<1.0",
+    "httpx>=0.27.0,<1.0",
+    "streamlit>=1.40.0,<2.0",
+    "tabulate>=0.10.0,<1.0",
+    "neo4j_viz>=1.1.0,<2.0",
+]
+
+[project.scripts]
+neo4j-text2sql = "neo4j_text2sql_cli:main"
+
+[tool.setuptools]
+include-package-data = true
+py-modules = [
+    "LLM",
+    "agent",
+    "init",
+    "neo4j_text2sql_cli",
+    "reload",
+    "semanticLayer",
+    "streamlit_app",
+    "testSemanticLayer",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["api*", "load*", "neo4jHelpers*", "tools*"]
+namespaces = true

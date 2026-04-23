@@ -316,7 +316,7 @@ def test_sql_result_loop():
         if type(out) == pd.DataFrame:
             print(f"{out.to_markdown()}\n")
         else:
-            print(f"{out["answer"]}")
+            print(f"{out['answer']}")
             conn = db.get_db_connect()
 
 if __name__ == "__main__":

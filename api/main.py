@@ -2,6 +2,8 @@
 Text2SQL agent HTTP API.
 
 Local run (terminal 1):
+    neo4j-text2sql api
+or
     uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
 
 Pair with Streamlit (terminal 2); set API_BASE to this server's URL.

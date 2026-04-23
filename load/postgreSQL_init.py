@@ -136,7 +136,7 @@ def createDB(initialize: bool = False):
             cur.execute("ANALYZE VERBOSE;")
             conn.commit()
         
-        print(f"Database '{os.getenv("POSTGRES_DATABASE")}' successfully initialized with employees data.")
+        print(f"Database '{os.getenv('POSTGRES_DATABASE')}' successfully initialized with employees data.")
 
     except Exception:
         conn.rollback()

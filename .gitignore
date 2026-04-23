@@ -7,3 +7,4 @@ include
 __pycache__/
 etc
 share
+neo4j_text2sql.egg-info/

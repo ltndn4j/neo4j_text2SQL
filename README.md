@@ -39,8 +39,10 @@ What is stored in the Semantic Layer? To ground the LLM with surgical precision 
 
 ### Install libraries
 ```
-pip install -r requirements.txt
+pip install -e .
 ```
+This will also let you use `neo4j-text2sql` CLI command.
+If you don't want to use the editable mode (-e), you can run `pip install -r requirements.txt`
 
 ### Configure the .env file
 There are 2 options to configure the access to neo4j database:
@@ -83,8 +85,11 @@ It will provision in Neo4j aura a 2GB `AuraDB Professional` instance with the na
 
 ### Load data
 
-Execute `init.py` file to load schema and data in postgreSQL, and then initialize the semantic layer in neo4j.
-
+Run the CLI command to load schema and data in postgreSQL, and then initialize the semantic layer in neo4j.
+```
+neo4j-text2sql init
+```
+Alternative to CLI, you can just execute `python init.py`
 
 At the end of the init, and if you configured the `.env` file with `.env_initAuraPro.example`, add the password provided in the log during the load in the `.env` file before starting the application:
 ```
@@ -95,14 +100,19 @@ NEO4J_PASSWORD=<Password displayed when aura instance is created>
 
 ### Start the API backend
 ```
-uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
+neo4j-text2sql api
 ```
+You can override defaults when needed, for example: `neo4j-text2sql api --host 127.0.0.1 --port 8001 --no-reload`
+
+Alternative to CLI, you can just execute `uvicorn api.main:app --reload --host 127.0.0.1 --port 8000`
 
 ### Start the frontend
 ```
-streamlit run streamlit_app.py
+neo4j-text2sql ui
 ```
-If you have started the api with another host/port, you can run the following command instead `API_BASE=http://127.0.0.1:8000 streamlit run streamlit_app.py`
+If you started the API with another host/port, set the API URL with: `neo4j-text2sql ui --api-base http://127.0.0.1:8001`
+
+Alternative to CLI, you can just execute `streamlit run streamlit_app.py` (or `API_BASE=http://127.0.0.1:8000 streamlit run streamlit_app.py` to target another api url/port)
 
 ### Application Guide
 #### Questions

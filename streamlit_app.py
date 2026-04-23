@@ -3,9 +3,13 @@ Streamlit chat UI for the Text2SQL API.
 
 Local run (after the API is up):
     API_BASE=http://127.0.0.1:8000 streamlit run streamlit_app.py
-
 Start the API first, for example:
     uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
+
+Or use the CLI:
+    neo4j-text2sql ui
+    Start the Streamlit app with:
+    neo4j-text2sql api
 """
 
 import os
@@ -372,7 +376,7 @@ with col_chat:
             with st.chat_message(msg["role"],avatar=AVATAR[msg["role"]]):
                 st.markdown(msg["content"])
                 if st.session_state.show_usage and msg.get("usage"):
-                    with st.expander(f"Usage &nbsp; ({msg["usage"]["total_tokens"]} tokens)"):
+                    with st.expander(f'Usage &nbsp; ({msg["usage"]["total_tokens"]} tokens)'):
                         st.json(msg["usage"])
                 if st.session_state.show_sql_query and msg.get("sql_query"):
                     with st.expander("SQL Query"):
