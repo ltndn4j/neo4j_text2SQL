@@ -29,15 +29,24 @@ What is stored in the Semantic Layer? To ground the LLM with surgical precision 
 
 ![image](./image/application.png)
 
-## Installation
+## Installation & Start (TL;DR)
+
+* Rename `.env.example` to `.env` and configure all the parameters.
+* Execute `pip install -e .`
+* Execute `neo4j-text2sql init`
+* Execute `neo4j-text2sql api`
+* Execute `neo4j-text2sql ui`
+
+## Installation (Step-by-step)
 
 ### Prerequisites
-* Python (tested with Python 3.13)
+* Python >=3.10 (tested with Python 3.13)
 * Database postgreSQL
 * Neo4j Aura account (https://console.neo4j.io) with API key or Neo4j database
 * OpenAI key (LLM used in the langchain agent with `gpt-5.4-mini model`, and to compute embeddings with `text-embedding-3-small` model)
 
 ### Install libraries
+
 ```
 pip install -e .
 ```
