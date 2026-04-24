@@ -27,7 +27,7 @@ CYPHER 25
 CALL () {
     MATCH (column:Column)
         SEARCH column IN (VECTOR INDEX column_similarity FOR $queryEmbedding LIMIT 10) SCORE as score
-        WHERE score>$threshold + 0.05
+        WHERE score>$threshold
     RETURN DISTINCT column
     UNION
     MATCH (entryTerm:Term)
@@ -47,8 +47,8 @@ CALL (sourceColumn, targetColumn) {
     OPTIONAL MATCH (fromSchema:Schema)-->(:Table {name:sourceColumn.tableName})-->(fromColumn:Column)-[:REFERENCES]-(toColumn:Column)<--(:Table {name:targetColumn.tableName})<--(toSchema:Schema)
     RETURN fromSchema, fromColumn, toSchema, toColumn
 }
-WITH DISTINCT sourceColumn as column, fromSchema, fromColumn, toSchema, toColumn
-WITH column, 
+WITH DISTINCT sourceColumn as columnSimilarity, fromSchema, fromColumn, toSchema, toColumn
+WITH columnSimilarity, 
 CASE 
   WHEN toSchema IS NULL THEN NULL
   ELSE {
@@ -56,10 +56,11 @@ CASE
     target:{schema:toSchema.name, table:toColumn.tableName, column:toColumn.name}
   }
 END as join
-WITH column, collect(join) as table_joins
+WITH columnSimilarity, collect(join) as table_joins
 
 // Reach out to Schema and Database context
-MATCH (db:Database)-[:CONTAINS_SCHEMA]->(schema:Schema)-[:CONTAINS_TABLE]->(table:Table)-[:HAS_COLUMN]->(column)
+MATCH (db:Database)-[:CONTAINS_SCHEMA]->(schema:Schema)-[:CONTAINS_TABLE]->(table:Table)-[:HAS_COLUMN]->(columnSimilarity)
+MATCH (table)-[:HAS_COLUMN]->(column:Column)
 
 // Aggregate Column details
 OPTIONAL MATCH (:Term)-[:HAS_TERM*0..]->(tc:Term)-[:DEFINES]->(column)

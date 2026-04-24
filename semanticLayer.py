@@ -27,7 +27,7 @@ CYPHER 25
 CALL () {
     MATCH (column:Column)
         SEARCH column IN (VECTOR INDEX column_similarity FOR $queryEmbedding LIMIT 10) SCORE as score
-        WHERE score>$threshold + 0.05
+        WHERE score>$threshold
     RETURN DISTINCT column
     UNION
     MATCH (entryTerm:Term)
@@ -47,8 +47,9 @@ CALL (sourceColumn, targetColumn) {
     OPTIONAL MATCH links=(fromSchema:Schema)-->(:Table {name:sourceColumn.tableName})-->(fromColumn:Column)-[:REFERENCES]-(toColumn:Column)<--(:Table {name:targetColumn.tableName})<--(toSchema:Schema)
     RETURN links
 }
-WITH DISTINCT sourceColumn as column, links
-MATCH p=(:Schema)-[:CONTAINS_TABLE]->(table:Table)-[:HAS_COLUMN]->(column:Column)
+WITH DISTINCT sourceColumn as columnSimilarity, links
+MATCH (table:Table)-[:HAS_COLUMN]->(columnSimilarity:Column)
+MATCH p=(:Schema)-[:CONTAINS_TABLE]->(table)-[:HAS_COLUMN]->(column:Column)
 OPTIONAL MATCH termCol = (:Term)-[:HAS_TERM*0..]->(:Term)-[:DEFINES]->(column)
 OPTIONAL MATCH termTable = (:Term)-[:HAS_TERM*0..]->(:Term)-[:DEFINES]->(table)
 OPTIONAL MATCH values = (column)-[:HAS_VALUE]->(:Value)
