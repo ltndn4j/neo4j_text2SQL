@@ -1,5 +1,6 @@
 import csv
 import re
+from collections import Counter
 from pathlib import Path
 import neo4j
 from dotenv import load_dotenv
@@ -123,17 +124,24 @@ def iter_statement_sqls(csv_path: Path):
                 yield rest
 
 
-def merge_references(driver: neo4j.Driver, pairs: list[tuple[str, str, str, str]]) -> None:
+def merge_references(
+    driver: neo4j.Driver,
+    pair_counts: list[tuple[tuple[str, str, str, str], int]],
+) -> None:
     cypher = """
     MERGE (c1:Column {tableName: $t1, name: $col1})
     MERGE (c2:Column {tableName: $t2, name: $col2})
     WITH c1, c2
     WHERE NOT (c1)--(:ForeignKey)--(c2)
-    MERGE (c1)-[:REFERENCES]->(c2)
+    MERGE (c1)-[r:REFERENCES]->(c2)
+    SET r.usedCount = COALESCE(r.usedCount, 0) + $count
     """
     with driver.session() as session:
-        for t1, col1, t2, col2 in pairs:
-            session.run(cypher, {"t1": t1, "col1": col1, "t2": t2, "col2": col2})
+        for (t1, col1, t2, col2), count in pair_counts:
+            session.run(
+                cypher,
+                {"t1": t1, "col1": col1, "t2": t2, "col2": col2, "count": count},
+            )
 
 
 def load(driver: neo4j.GraphDatabase.driver, initialize: bool = False):
@@ -141,9 +149,8 @@ def load(driver: neo4j.GraphDatabase.driver, initialize: bool = False):
     if not TRANSACTION_LOG_CSV.is_file():
         raise FileNotFoundError(f"Missing CSV: {TRANSACTION_LOG_CSV}")
 
-    all_pairs: set[tuple[str, str, str, str]] = set()
+    join_pair_counts: Counter[tuple[str, str, str, str]] = Counter()
     for sql in iter_statement_sqls(TRANSACTION_LOG_CSV):
         for p in extract_join_column_pairs(sql):
-            all_pairs.add(p)
-
-    merge_references(driver, sorted(all_pairs))
+            join_pair_counts[p] += 1
+    merge_references(driver, sorted(join_pair_counts.items()))

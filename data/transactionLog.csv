@@ -7,3 +7,5 @@ FROM employees.employee AS e
 JOIN employees.salary s ON e.id = s.employee_id
 GROUP BY e.gender;",,,,,,,,"exec_simple_query, src\backend\tcop\postgres.c:914","pgAdmin III - Query Tool"
 2017-07-19 16:42:09.416 UTC,"postgres","postgres",11956,"::1:22927",596f89e1.2eb4,42,"SELECT",2017-07-19 16:33:37 UTC,2/0,0,LOG,00000,"duration: 0.000 ms",,,,,,,,"exec_simple_query, src\backend\tcop\postgres.c:1142","pgAdmin III - Query Tool"
+2017-07-19 16:42:09.369 UTC,"postgres","postgres",11956,"::1:22927",596f89e1.2eb4,43,"idle",2017-07-19 16:33:37 UTC,2/20,0,LOG,00000,"statement: SELECT EXTRACT(YEAR FROM e.birth_date) as year, AVG(ss.support_score) FROM employees.employee AS e JOIN hr_survey.satisfaction_survey AS ss ON e.email = ss.employee_email GROUP BY year ORDER BY YEAR",,,,,,,,"exec_simple_query, src\backend\tcop\postgres.c:914","pgAdmin III - Query Tool"
+2017-07-19 16:42:09.369 UTC,"postgres","postgres",11956,"::1:22927",596f89e1.2eb4,44,"SELECT",2017-07-19 16:33:37 UTC,2/0,0,LOG,00000,"duration: 0.000 ms",,,,,,,,"exec_simple_query, src\backend\tcop\postgres.c:1142","pgAdmin III - Query Tool"
