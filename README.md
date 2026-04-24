@@ -42,7 +42,7 @@ What is stored in the Semantic Layer? To ground the LLM with surgical precision 
 ### Prerequisites
 * Python >=3.10 (tested with Python 3.13)
 * [Database postgreSQL](https://www.postgresql.org/download/)
-* Neo4j [Aura account](https://console.neo4j.io) with API key or any [Neo4j database](https://neo4j.com/deployment-center/) (For self-depoyment, **APOC plugin must be installed**)
+* Neo4j [Aura account](https://console.neo4j.io) with API key or any [Neo4j database](https://neo4j.com/deployment-center/) (⚠️ For self-depoyment, **APOC plugin must be installed**)
 * OpenAI key (LLM used in the langchain agent with `gpt-5.4-mini model`, and to compute embeddings with `text-embedding-3-small` model)
 
 ### Install libraries
