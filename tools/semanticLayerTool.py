@@ -23,15 +23,16 @@ def create_semantic_tools(driver: neo4j.Driver, threshold: float,context: dict =
             context["embedding"] = embedding
             context["question"] = q
         cypher="""
+CYPHER 25
 CALL () {
-    CALL db.index.vector.queryNodes('column_similarity', 10, $queryEmbedding)
-    YIELD node, score WHERE score > $threshold + 0.05
-    WITH node as column
+    MATCH (column:Column)
+        SEARCH column IN (VECTOR INDEX column_similarity FOR $queryEmbedding LIMIT 10) SCORE as score
+        WHERE score>$threshold + 0.05
     RETURN DISTINCT column
     UNION
-    CALL db.index.vector.queryNodes('term_similarity', 10, $queryEmbedding)
-    YIELD node, score WHERE score > $threshold
-    WITH node as entryTerm
+    MATCH (entryTerm:Term)
+        SEARCH entryTerm IN (VECTOR INDEX term_similarity FOR $queryEmbedding LIMIT 10) SCORE as score
+        WHERE score>$threshold
     MATCH (entryTerm)-[:HAS_TERM*0..]->(:Term)-[:DEFINES|HAS_COLUMN*1..2]->(column:Column)
     RETURN DISTINCT column
 }
