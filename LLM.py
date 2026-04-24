@@ -1,7 +1,7 @@
 import json
 import pandas as pd
 from dotenv import load_dotenv
-from neo4j_graphrag.llm import OpenAILLM
+from langchain_openai import ChatOpenAI
 import tools.postgresqlTool as db
 
 load_dotenv(override=True)
@@ -66,13 +66,7 @@ You must return the result in a JSON object with the following format:
 MODEL_NAME = "gpt-5.4-mini"
 REASONING_EFFORT = "low"
 
-llm = OpenAILLM(
-    model_name=MODEL_NAME,
-    model_params={
-        "response_format": {"type": "json_object"},
-        "temperature": 0,
-    },
-)
+llm = ChatOpenAI(use_responses_api=True, temperature=0)
 
 def _load_schema_text() -> str:
     with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
@@ -89,7 +83,7 @@ def run_yaml_llm_question(
     if schema_text is None:
         schema_text = _load_schema_text()
 
-    response = llm.client.responses.create(
+    response = llm.invoke(
         model=MODEL_NAME,
         input=[
             {
@@ -105,17 +99,18 @@ def run_yaml_llm_question(
         ],
         text={"format": {"type": "json_object"}},
         reasoning={"effort": REASONING_EFFORT},
+        temperature=0,
         tools=[],
         store=False,
     )
     usage = {
-                "model": response.model,
-                "input_tokens": response.usage.input_tokens,
-                "output_tokens": response.usage.output_tokens,
-                "total_tokens": response.usage.total_tokens,
+                "model": response.response_metadata["model_name"],
+                "input_tokens": response.usage_metadata["input_tokens"],
+                "output_tokens": response.usage_metadata["output_tokens"],
+                "total_tokens": response.usage_metadata["total_tokens"],
             }
     try:
-        response_json = json.loads(response.output_text)
+        response_json = json.loads(response.content[0]["text"])
         
     except (json.JSONDecodeError, TypeError) as e:
         return {
@@ -158,7 +153,7 @@ def run_yaml_llm_question(
                 df = pd.DataFrame(rows, columns=[desc[0] for desc in cur.description])
                 if only_data:
                     return df
-                response_with_data = llm.client.responses.create(
+                response_with_data = llm.invoke(
                     model=MODEL_NAME,
                     input=[
                         {
@@ -176,28 +171,29 @@ def run_yaml_llm_question(
                         },
                     ],
                     reasoning={},
+                    temperature=0,
                     tools=[],
                     store=False,
                 )
-                output_text = response_with_data.output_text
+                output_text = response_with_data.content[0]["text"]
                 input_tokens = (
-                    response.usage.input_tokens
-                    + response_with_data.usage.input_tokens
+                    response.usage_metadata["input_tokens"]
+                    + response_with_data.usage_metadata["input_tokens"]
                 )
                 output_tokens = (
-                    response.usage.output_tokens
-                    + response_with_data.usage.output_tokens
+                    response.usage_metadata["output_tokens"]
+                    + response_with_data.usage_metadata["output_tokens"]
                 )
                 total_tokens = (
-                    response.usage.total_tokens
-                    + response_with_data.usage.total_tokens
+                    response.usage_metadata["total_tokens"]
+                    + response_with_data.usage_metadata["total_tokens"]
                 )
         except Exception as e:
             failed = True
             output_text = f"Error: {e}"
-            input_tokens = response.usage.input_tokens
-            output_tokens = response.usage.output_tokens
-            total_tokens = response.usage.total_tokens
+            input_tokens = response.usage_metadata["input_tokens"]
+            output_tokens = response.usage_metadata["output_tokens"]
+            total_tokens = response.usage_metadata["total_tokens"]
 
     return {
         "with_error": failed,
@@ -206,7 +202,7 @@ def run_yaml_llm_question(
         "reasoning": reasoning if isinstance(reasoning, str) else None,
         "usage": {
             "backend": "LLM+YAML Grounding",
-            "model": response.model,
+            "model": response.response_metadata["model_name"],
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             "total_tokens": total_tokens,
@@ -239,7 +235,7 @@ def compare_answer_accuracy(conn, columns_to_compare: str, reference_sql: str, g
     ## Result
     {gen_data}"""
 
-    response = llm.client.responses.create(
+    response = llm.invoke(
         model=MODEL_NAME,
         input=[
             {
@@ -255,10 +251,11 @@ def compare_answer_accuracy(conn, columns_to_compare: str, reference_sql: str, g
         ],
         text={"format": {"type": "json_object"}},
         reasoning={"effort": REASONING_EFFORT},
+        temperature=0,
         tools=[],
         store=False,
     )
-    return json.loads(response.output_text)
+    return json.loads(response.content[0]["text"])
 
 
 def test_yaml_grounding():
