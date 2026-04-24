@@ -32,7 +32,7 @@ AVATAR = {
 PUBLIC_API_MODES = ["yaml_agent", "agent"]
 HIDDEN_API_MODES = ["yaml_llm"]
 
-THRESHOLD = 0.65
+THRESHOLD = 0.7
 
 # Curated example questions with reference SQL (expected answer query).
 QUESTION_SUGGESTIONS = [
