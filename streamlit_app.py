@@ -52,7 +52,7 @@ FROM employees.employee e
 JOIN employees.salary s ON s.employee_id = e.id  AND s.from_date <= DATE '2026-04-15' AND s.to_date > DATE '2026-04-16'
 LEFT JOIN hr_survey.satisfaction_survey ss ON ss.employee_email = e.email
 GROUP BY e.gender""",
-        "columns_to_compare": "Compare only the two columns average_salary and average_payroll_satisfaction, using the column gender as the reference.",
+        "columns_to_compare": "Compare only the two columns average_salary and average_payroll_satisfaction, using the column gender as the reference where M matches man or men, F matches woman or women",
     },
     {
         "question": "Can you give me all the first names on each role that are most common ?",
@@ -83,7 +83,8 @@ def request_answer_sql_validation(
     api_base: str,
     columns_to_compare: str,
     reference_sql: str,
-    generated_sql: str,
+    generated_sql: list[str],
+    answer: str = None,
 ) -> dict:
     """
     Call POST ``{api_base}/validate-sql-answer`` with the reference and generated SQL.
@@ -93,7 +94,7 @@ def request_answer_sql_validation(
     base = api_base.rstrip("/")
     response = client.post(
         f"{base}/validate-sql-answer",
-        json={"columns_to_compare": columns_to_compare,"reference_sql": reference_sql, "generated_sql": generated_sql},
+        json={"columns_to_compare": columns_to_compare,"reference_sql": reference_sql, "generated_sql": generated_sql, "generated_answer": answer},
     )
     response.raise_for_status()
     return response.json()
@@ -305,13 +306,13 @@ with _settings_col:
                 st.rerun()
             st.session_state.answer_validation = st.toggle(
                 "Check Answer accuracy",
-                value=st.session_state.answer_validation,
+                value=True,
                 help="For curated example questions, compare the generated answer to the reference",
             )
             st.session_state.validation_loop_count = st.select_slider(
                 "Accuracy resample loops",
                 options=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
-                value=int(st.session_state.validation_loop_count),
+                value=0,
                 help="Re-run the backend this many times to get an average accuracy. Set to 0 to disable.",
                 disabled=not st.session_state.answer_validation,
             )
@@ -319,17 +320,17 @@ with _settings_col:
                 st.warning("Many loops will take 2-3mn.", icon="🚨")
             st.session_state.show_usage = st.toggle(
                 "Usage",
-                value=st.session_state.show_usage,
+                value=True,
                 help="Token usage and model metadata from the agent run.",
             )
             st.session_state.show_sql_query = st.toggle(
                 "SQL query",
-                value=st.session_state.show_sql_query,
+                value=False,
                 help="The SQL returned by the agent when it called the database tool.",
             )
             st.session_state.show_tools = st.toggle(
                 "Tools",
-                value=st.session_state.show_tools,
+                value=False,
                 help="Which tools the agent invoked for that answer.",
             )
             _backend_options = list(PUBLIC_API_MODES)
@@ -380,7 +381,8 @@ with col_chat:
                         st.json(msg["usage"])
                 if st.session_state.show_sql_query and msg.get("sql_query"):
                     with st.expander("SQL Query"):
-                        st.code(msg["sql_query"])
+                        for sql in msg["sql_query"]:
+                            st.code(sql)
                 if st.session_state.show_tools and msg.get("tools"):
                     with st.expander("Tools"):
                         st.json(msg["tools"])
@@ -430,7 +432,7 @@ with col_chat:
                         with_error = data.get("with_error")
                         answer_text = data.get("answer") or ""
                         usage_data = data.get("usage")
-                        sql_query = data.get("sql_query")
+                        sql_query = data.get("sql_queries")
                         tools = data.get("tools")
                         icon = ""
     
@@ -446,11 +448,7 @@ with col_chat:
                         if st.session_state.show_tools and tools:
                             with st.expander("Tools"):
                                 st.json(tools)
-                        accuracy_details = {
-                            "summary": "",
-                            "accuracy": None,
-                            "accuracy_details": {}
-                        }
+                        accuracy_details = {}
     
                         # Context graph for the right column (keep last graph until a new one succeeds)
                         if embeddings:
@@ -472,28 +470,33 @@ with col_chat:
                                         pending_columns_to_compare,
                                         pending_reference_sql,
                                         sql_query,
+                                        answer_text,
                                     )
-                                    accuracy_details["summary"] = sql_validation["summary"]
-                                    accuracy_details["accuracy"] = sql_validation["accuracy"]
-                                    accuracy_details["accuracy_details"] = sql_validation["accuracy_details"]
+                                    accuracy_details["displayed_answer_summary"] = sql_validation["summary"]
+                                    accuracy_details["displayed_answer_accuracy"] = sql_validation["accuracy"]
+                                    accuracy_details["displayed_answer_accuracy_details"] = sql_validation["accuracy_details"]
+                                    accuracy_details["average_accuracy"] = sql_validation["accuracy"]
                                     my_bar.progress(2/total_steps, text=progress_text)
-    
-                                    #TEST LOOP
+
+                                    #ACCURACY RESAMPLE LOOPS
                                     params = {"message": prompt,"yaml_agent": api_mode == "yaml_agent", "only_sql": True}
-                                    average_accuracy = [accuracy_details["accuracy"]]
+                                    average_accuracy = [sql_validation["accuracy"]]
                                     for i in range(int(st.session_state.validation_loop_count)):
-                                        with httpx.Client(timeout=300.0) as client:
-                                            r = client.post(f"{api_base}{endpoint}", json=params)
-                                            generated_sql = r.json().get("sql_query")
-                                            my_bar.progress((2*i+3)/total_steps, text=progress_text)
-                                            v = request_answer_sql_validation(v_client,api_base,pending_columns_to_compare,pending_reference_sql,generated_sql)
+                                        r = v_client.post(f"{api_base}{endpoint}", json=params)
+                                        generated_sql = r.json().get("sql_queries")
+                                        my_bar.progress((2*i+3)/total_steps, text=progress_text)
+                                        v = request_answer_sql_validation(v_client,api_base,pending_columns_to_compare,pending_reference_sql,generated_sql, r.json().get("answer"))
+                                        if v["accuracy"] == 0:
+                                            average_accuracy.append({"value": v["accuracy"], "summary": v["summary"], "sql": generated_sql})
+                                        else:
                                             average_accuracy.append(v["accuracy"])
+                                        accuracy_details["average_accuracy_values"] = average_accuracy
                                         my_bar.progress((2*i+4)/total_steps, text=progress_text)
-                                    accuracy_details["average_accuracy"] = sum(average_accuracy) / len(average_accuracy)
-                                    icon = _accuracy_answer_icon(float(accuracy_details["average_accuracy"]))
-                                    accuracy_details["average_accuracy_values"] = average_accuracy
-                                with st.expander(f"Accuracy &nbsp; {icon}"):
-                                    st.json(accuracy_details)
+                                sum_accuracy = sum(v["value"] if isinstance(v, dict) else v for v in average_accuracy)
+                                accuracy_details["average_accuracy"] = sum_accuracy / len(average_accuracy)
+                                icon = _accuracy_answer_icon(float(accuracy_details["average_accuracy"]))
+                            with st.expander(f"Accuracy &nbsp; {icon}"):
+                                st.json(accuracy_details)
                     except httpx.HTTPStatusError as exc:
                         st.error(f"Error: {str(exc)}")
                         icon = "🔴"
@@ -506,7 +509,7 @@ with col_chat:
                         "role": api_mode,
                         "content": answer_text or "_No response._",
                         "usage": usage_data,
-                        "sql_query": sql_query or "",
+                        "sql_query": sql_query or [],
                         "tools": tools or [],
                         "sql_validation": accuracy_details,
                         "accuracy_icon": icon,

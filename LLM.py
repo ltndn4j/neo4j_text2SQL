@@ -43,16 +43,15 @@ You are a data analyst agent and are tasked with answering questions based on th
 
 PROMPT_VALIDATION = f"""
 # Identity
-You are a data analyst agent and are tasked with comparing the differences between 2 datasets
+You are a data analyst agent and are tasked to validate the answer of a LLM agent comparing the differences between 2 datasets
 
 # Rules:
+* Compare the generated answer with the reference data
 * Return the answer in a readable format
 * Don't make up data, only use the data provided
-* Only take into account the columns that are present in both datasets
-* Match the result columns name between the 2 datasets using the most similar title or sql column name from the SQL query.
 * Only compare the values, not the titles or the order of the columns
+* Match the value of the generated answer with the reference data using the SQL query and the result provided in the generated data.
 * In the accuracy object, the key is the column name and the value is the accuracy between the reference and the generated value using the formula: (1 - (abs(reference - generated) / reference))
-* For gender values, M matches man or men, F matches woman or women
 
 # Output format
 You must return the result in a JSON object with the following format:
@@ -209,32 +208,37 @@ def run_yaml_llm_question(
         },
     }
 
-def compare_answer_accuracy(conn, columns_to_compare: str, reference_sql: str, generated_sql: str) -> dict:
+PROMPT_VALIDATION_DATA = """#Generated answer
+{generated_answer}
+#Columns to compare:
+{focus}
+#Reference data:
+## SQL Query
+{ref_sql}
+## Result
+{ref_data}
+#Generated data:
+"""
+PROMPT_VALIDATION_DATA_GENERATED = """## SQL Query
+{gen_sql}
+## Result
+{gen_data}
+"""
+
+def compare_answer_accuracy(conn, columns_to_compare: str, reference_sql: str, generated_sql: list[str], generated_answer: str = None) -> dict:
     with conn.cursor() as cur:
         cur.execute(reference_sql)
         ref_df = pd.DataFrame(cur.fetchall(), columns=[desc[0] for desc in cur.description])
         ref_data = ref_df.to_markdown()
-        try:
-            cur.execute(generated_sql)
-            gen_df = pd.DataFrame(cur.fetchall(), columns=[desc[0] for desc in cur.description])
-            gen_data = gen_df.to_markdown()
-        except Exception as e:
-            gen_data = f"Error: {e}"
-    
-    prompt = f"""
-    #Columns to compare:
-    {columns_to_compare}
-    #Reference data:
-    ## SQL Query
-    {reference_sql}
-    ## Result
-    {ref_data}
-    #Generated data
-    ## SQL Query
-    {generated_sql}
-    ## Result
-    {gen_data}"""
-
+        prompt = PROMPT_VALIDATION_DATA.format(focus=columns_to_compare,ref_sql=reference_sql, ref_data=ref_data, generated_answer=generated_answer)
+        for sql in generated_sql:
+            try:    
+                cur.execute(sql)
+                gen_df = pd.DataFrame(cur.fetchall(), columns=[desc[0] for desc in cur.description])
+                gen_data = gen_df.to_markdown()
+            except Exception as e:
+                gen_data = f"Error: {e}"
+            prompt += PROMPT_VALIDATION_DATA_GENERATED.format(gen_sql=sql, gen_data=gen_data)
     response = llm.invoke(
         model=MODEL_NAME,
         input=[

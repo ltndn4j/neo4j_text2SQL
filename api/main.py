@@ -54,7 +54,7 @@ def _serialize_usage(cb: UsageMetadataCallbackHandler, is_yaml_agent: bool = Fal
 def _serialize_sql_query(steps: list):
     toolAction_SQL = [action for (action, result) in steps if action.tool == "run_sql"]
     if len(toolAction_SQL) > 0:
-        return toolAction_SQL[-1].tool_input.get('query')
+        return [action.tool_input.get('query') for action in toolAction_SQL]
     return None
 
 def _serialize_tools(steps: list, question: Optional[str] = None):
@@ -107,7 +107,7 @@ class ChatResponse(BaseModel):
     answer: str
     with_error: bool = False
     usage: Optional[dict] = None
-    sql_query: Optional[str] = None
+    sql_queries: Optional[list] = None
     tools: Optional[list] = None
     embeddings: Optional[list] = None
 
@@ -115,7 +115,8 @@ class ChatResponse(BaseModel):
 class ValidateSQLAnswerRequest(BaseModel):
     columns_to_compare: str
     reference_sql: str
-    generated_sql: str
+    generated_sql: list[str]
+    generated_answer: Optional[str] = None
 
 class ValidateSQLAnswerResponse(BaseModel):
     summary: str
@@ -161,7 +162,7 @@ async def chat(body: ChatRequest):
     return ChatResponse(
         answer=answer,
         usage=_serialize_usage(cb, body.yaml_agent), 
-        sql_query=_serialize_sql_query(steps), 
+        sql_queries=_serialize_sql_query(steps), 
         tools=_serialize_tools(steps, context.get("question", None)),
         embeddings=context.get("embedding", None)
     )
@@ -186,15 +187,15 @@ async def yaml_llm(body: ChatRequest):
         with_error=out["with_error"],
         answer=out["answer"],
         usage=out.get("usage"),
-        sql_query=out.get("sql_query"),
+        sql_queries=[out.get("sql_query")],
     )
 
 @app.post("/validate-sql-answer", response_model=ValidateSQLAnswerResponse)
 async def validate_sql_answer(body: ValidateSQLAnswerRequest):
-    result = compare_answer_accuracy(app.state.db_conn, body.columns_to_compare, body.reference_sql, body.generated_sql)
+    result = compare_answer_accuracy(app.state.db_conn, body.columns_to_compare, body.reference_sql, body.generated_sql, body.generated_answer)
     return ValidateSQLAnswerResponse(
         summary=result["summary"],
-        accuracy=result["average_accuracy"],
+        accuracy=0 if result["average_accuracy"] is None else result["average_accuracy"],
         accuracy_details=result["accuracy"],
     )
 
