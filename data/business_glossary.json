@@ -28,8 +28,8 @@
       }]
     },
     {
-      "term": "Job Title",
-      "definition": "The formal designation or rank held by an employee, reflecting their professional role and responsibilities (e.g., 'Senior Engineer').",
+      "term": "Job Function",
+      "definition": "The formal designation held by an employee, reflecting their professional role and specific field of work.",
       "technical_mappings": [{
         "table": "title",
         "column": "title"
