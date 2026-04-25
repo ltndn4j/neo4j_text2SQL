@@ -33,6 +33,14 @@ def _db_conn_ok(conn) -> bool:
     except Exception:
         return False
 
+def _neo4j_conn_ok(driver) -> bool:
+    try:
+        with driver.session() as session:
+            session.run("RETURN 1")
+        return True
+    except Exception:
+        return False
+
 def _serialize_usage(cb: UsageMetadataCallbackHandler, is_yaml_agent: bool = False):
     raw = getattr(cb, "usage_metadata", None) or {}
     if not raw:
@@ -84,9 +92,15 @@ async def lifespan(app: FastAPI):
     driver.close()
     conn.close()
 
+async def check_db_conn(app: FastAPI):
+    if not await run_in_threadpool(_db_conn_ok, app.state.db_conn):
+        print("The database connection is unavailable. RESTARTING CONNECTION.")
+        app.state.db_conn = db.get_db_connect()
+    if not await run_in_threadpool(_neo4j_conn_ok, app.state.neo4j_driver):
+        print("The semantic layer connection is unavailable. RESTARTING CONNECTION.")
+        app.state.neo4j_driver = neo4jdb.getDriver()
 
 app = FastAPI(title="neo4j_text2SQL API", lifespan=lifespan)
-
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1)
@@ -134,9 +148,9 @@ class ContextGraphRequest(BaseModel):
 def health():
     return {"status": "ok"}
 
-
 @app.post("/chat", response_model=ChatResponse)
 async def chat(body: ChatRequest):
+    await check_db_conn(app)
     cb = UsageMetadataCallbackHandler()
     context = {}
     executor = create_executor(
@@ -169,9 +183,7 @@ async def chat(body: ChatRequest):
 
 @app.post("/yaml-llm", response_model=ChatResponse)
 async def yaml_llm(body: ChatRequest):
-    if not await run_in_threadpool(_db_conn_ok, app.state.db_conn):
-        print("The database connection is unavailable. RESTARTING CONNECTION.")
-        app.state.db_conn = db.get_db_connect()
+    await check_db_conn(app)
     try:
         out = await run_in_threadpool(
             lambda: run_yaml_llm_question(
@@ -192,6 +204,7 @@ async def yaml_llm(body: ChatRequest):
 
 @app.post("/validate-sql-answer", response_model=ValidateSQLAnswerResponse)
 async def validate_sql_answer(body: ValidateSQLAnswerRequest):
+    await check_db_conn(app)
     result = compare_answer_accuracy(app.state.db_conn, body.columns_to_compare, body.reference_sql, body.generated_sql, body.generated_answer)
     return ValidateSQLAnswerResponse(
         summary=result["summary"],
@@ -201,6 +214,7 @@ async def validate_sql_answer(body: ValidateSQLAnswerRequest):
 
 @app.post("/context-graph")
 async def context_graph(body: ContextGraphRequest):
+    await check_db_conn(app)
     if body.embedding is None:
         df = get_model(app.state.neo4j_driver)
     else:
