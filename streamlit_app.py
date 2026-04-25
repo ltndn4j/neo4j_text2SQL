@@ -40,6 +40,7 @@ QUESTION_SUGGESTIONS = [
         "question": "How many divisions are there in the company ?",
         "reference_sql": "SELECT COUNT(*) AS division_count FROM employees.department;",
         "columns_to_compare": "division_count",
+        "type": "default",
     },
     {
         "question": "What is the average salary and its related satisfaction for men and women ?",
@@ -53,6 +54,7 @@ JOIN employees.salary s ON s.employee_id = e.id  AND s.from_date <= DATE '2026-0
 LEFT JOIN hr_survey.satisfaction_survey ss ON ss.employee_email = e.email
 GROUP BY e.gender""",
         "columns_to_compare": "Compare only the two columns average_salary and average_payroll_satisfaction, using the column gender as the reference where M matches man or men, F matches woman or women",
+        "type": "default",
     },
     {
         "question": "Can you give me all the first names on each role that are most common ?",
@@ -74,6 +76,7 @@ WHERE r2.rank_id = 1
 ORDER BY r1.title, r1.first_name
 """,
         "columns_to_compare": "Compare only the column first_name and employee_count if avaiblable, using the column title as the reference.",
+        "type": "default",
     }
 ]
 
@@ -168,12 +171,11 @@ def create_visualization_graph(nodes_df: pd.DataFrame, rels_df: pd.DataFrame) ->
                 properties[key] = value
         node.properties = properties
     for rel in vg.relationships:
-        type = rel.properties.get("type")
-        if rel.properties.get("properties") is not None:
-            rel.properties = rel.properties.get("properties")
-        else:
-            rel.properties = {}
-        rel.properties["type"] = type
+        properties = {"type": rel.properties.get("type")}
+        for key, value in rel.properties["properties"].items():
+            if value is not None:
+                properties[key] = value
+        rel.properties = properties
         if rel.properties.get("type") == "REFERENCES":
             rel.width = 4
     html = vg.render(height=f"{CONTENT_HEIGHT_PX-39}px", theme=st.context.theme.type).data
@@ -190,6 +192,39 @@ def _fill_context_graph_placeholder(placeholder, message: str) -> None:
             else:
                 st.caption(message)
 
+@st.dialog("Define your example question")
+def open_settings_window():
+    question_input = st.text_input(
+        "Question",
+        key="accuracy_question_input",
+        value=st.session_state.UDF[0]["question"] if "UDF" in st.session_state and len(st.session_state.UDF) > 0 else "",
+        placeholder="How many employees are there in the company ?",
+        width=500
+    )
+    reference_sql_input = st.text_area(
+        "SQL reference to validate the generated answer",
+        key="accuracy_reference_sql_input",
+        placeholder="SELECT COUNT(*) AS employee_count FROM employees.employee;",
+        value=st.session_state.UDF[0]["reference_sql"] if "UDF" in st.session_state and len(st.session_state.UDF) > 0 else "",
+        width=500
+    )
+    comparison_instruction_input = st.text_input(
+            "Comparison instruction to validate the generated answer",
+            key="accuracy_comparison_instruction_input",
+            value=st.session_state.UDF[0]["columns_to_compare"] if "UDF" in st.session_state and len(st.session_state.UDF) > 0 else "",
+            placeholder="Compare the result with employee_count column",
+    )
+    if st.button("Add to the list", key="set_accuracy_check_inputs", use_container_width=True):
+        if question_input and reference_sql_input and comparison_instruction_input:
+            st.session_state.UDF = [{
+                "question": question_input,
+                "reference_sql": reference_sql_input,
+                "columns_to_compare": comparison_instruction_input,
+                "type": "udf",
+            }]
+            st.rerun()
+        else:
+            st.error("Please fill all the fields to add your example question")
 
 api_base = os.environ.get("API_BASE", "http://127.0.0.1:8000").rstrip("/")
 try:
@@ -228,6 +263,8 @@ if "context_graph_displayed" not in st.session_state:
     st.session_state.context_graph_displayed = False
 if "show_hidden_backends" not in st.session_state:
     st.session_state.show_hidden_backends = False
+if "UDF" not in st.session_state:
+    st.session_state.UDF = []
 
 st.markdown(
     """
@@ -265,9 +302,12 @@ st.markdown(
 )
 _header_was_suppressed = st.session_state.suppress_example_buttons
 
-_title_col, _semantic_graph_col, _settings_col = st.columns([20, 1, 1], vertical_alignment="bottom")
+_title_col, _semantic_graph_col, _dialog, _settings_col = st.columns([20, 0.8, 0.8, 1], vertical_alignment="bottom")
 with _title_col:
     st.title("Talk to your HR data")
+with _dialog:
+    if st.button("",icon=":material/playlist_add:", help="Add your own example question", disabled=st.session_state.suppress_example_buttons):
+        open_settings_window()
 with _semantic_graph_col:
     with st.container(horizontal_alignment="right"):
         icon = (
@@ -344,9 +384,9 @@ with _settings_col:
                     if x == "agent"
                     else "YAML agent"
                     if x == "yaml_agent"
-                    else "LLM+YAML Grounding"
+                    else "YAML AI (RAG)"
                 ),
-                help="Neo4j Agent uses the Neo4j semantic layer; YAML agent & LLM uses the schema-backed Text2SQL agent/pipeline.",
+                help="Neo4j Agent uses the Neo4j semantic layer; YAML agent/AI uses the schema-backed Text2SQL agent/pipeline.",
                 key="api_mode",
             )
             if st.session_state.show_hidden_backends:
@@ -416,7 +456,7 @@ with col_chat:
                         spinner_label = (
                             "Waiting for the agent…"
                             if api_mode == "agent" or api_mode == "yaml_agent"
-                            else "Waiting for YAML LLM…"
+                            else "Waiting for AI…"
                         )
                         with st.spinner(spinner_label):
                             with httpx.Client(timeout=300.0) as client:
@@ -444,7 +484,8 @@ with col_chat:
                                 st.json(usage_data)
                         if st.session_state.show_sql_query and sql_query:
                             with st.expander("SQL Query"):
-                                st.code(sql_query)
+                                for sql in sql_query:
+                                    st.code(sql)
                         if st.session_state.show_tools and tools:
                             with st.expander("Tools"):
                                 st.json(tools)
@@ -486,7 +527,7 @@ with col_chat:
                                         generated_sql = r.json().get("sql_queries")
                                         my_bar.progress((2*i+3)/total_steps, text=progress_text)
                                         v = request_answer_sql_validation(v_client,api_base,pending_columns_to_compare,pending_reference_sql,generated_sql, r.json().get("answer"))
-                                        if v["accuracy"] == 0:
+                                        if v["accuracy"] < 0.2:
                                             average_accuracy.append({"value": v["accuracy"], "summary": v["summary"], "sql": generated_sql})
                                         else:
                                             average_accuracy.append(v["accuracy"])
@@ -526,11 +567,12 @@ with col_chat:
         else:
             with suggestions_slot.container():
                 st.caption("Example questions (Only suggested questions can have the accuracy checked)")
-                for i, item in enumerate(QUESTION_SUGGESTIONS):
+                for i, item in enumerate(QUESTION_SUGGESTIONS + st.session_state.UDF):
                     st.button(
                         item["question"],
                         key=f"example_q_{i}",
                         use_container_width=True,
                         on_click=_queue_suggestion,
+                        icon="✏️" if item["type"] == "udf" else None,
                         args=(item["question"], item["reference_sql"], item["columns_to_compare"]),
                     )
