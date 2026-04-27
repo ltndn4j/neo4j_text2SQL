@@ -21,7 +21,7 @@ def test_connection(conn: psycopg2.connect, driver: neo4j.GraphDatabase.driver) 
         test["neo4j_OK"] = False
     try:
         with driver.session() as session:
-            session.run("RETURN apoc.map.removeKey({test'KO'}, 'test')")
+            session.run("RETURN apoc.map.removeKey({test: 'KO'}, 'test')")
     except Exception:
         test["apoc_OK"] = False
     return test
