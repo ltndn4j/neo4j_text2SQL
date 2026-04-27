@@ -11,7 +11,8 @@ def get_db_connect():
     pwd = os.getenv("POSTGRES_PASSWORD")
     db = os.getenv("POSTGRES_DATABASE") or "postgres"
     port = os.getenv("POSTGRES_PORT") or 5432
-    conn = psycopg2.connect(host=host, database=db, user=user, password=pwd, port=port)
+    sslmode = os.getenv("POSTGRES_SSLMODE")
+    conn = psycopg2.connect(host=host, database=db, user=user, password=pwd, port=port, sslmode=sslmode)
     return conn
 
 def create_db_tools(conn: psycopg2.extensions.connection):
