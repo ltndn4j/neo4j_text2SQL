@@ -75,7 +75,7 @@ JOIN RankedEmployees r2 ON r1.title = r2.title AND r1.employee_count = r2.employ
 WHERE r2.rank_id = 1
 ORDER BY r1.title, r1.first_name
 """,
-        "columns_to_compare": "Compare only the column first_name and employee_count if avaiblable, using the column title as the reference.",
+        "columns_to_compare": "Compare only the column first_name and employee_count if avaiblable, using the column title as the reference. Make sure to check all the first names for each title.",
         "type": "default",
     }
 ]
