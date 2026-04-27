@@ -14,11 +14,13 @@ def _run_command(command: list[str], env: dict | None = None) -> int:
 
 def cmd_init(_: argparse.Namespace) -> int:
     from init import run_initialization
-    run_initialization()
-    print("All Done! You can now start the API and use the Text2SQL agent.")
-    print("Start the API with: \033[92mneo4j-text2sql api\033[0m")
-    print("Start the Streamlit app with: \033[92mneo4j-text2sql ui\033[0m")
-    return 0
+    if run_initialization():
+        print("All Done! You can now start the API and use the Text2SQL agent.")
+        print("Start the API with: \033[92mneo4j-text2sql api\033[0m")
+        print("Start the Streamlit app with: \033[92mneo4j-text2sql ui\033[0m")
+        return 0
+    else:
+        return 1
 
 def cmd_reload(_: argparse.Namespace) -> int:
     from reload import run_reload
