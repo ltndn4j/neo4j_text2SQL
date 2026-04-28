@@ -181,14 +181,18 @@ def create_visualization_graph(nodes_df: pd.DataFrame, rels_df: pd.DataFrame) ->
     html = vg.render(height=f"{CONTENT_HEIGHT_PX-39}px", theme=st.context.theme.type).data
     return html
 
-def _fill_context_graph_placeholder(placeholder, message: str) -> None:
+def _fill_context_graph_placeholder(placeholder, message: str, force_redraw: bool = False) -> None:
     with placeholder.container():
         with st.container(border=True):
             if st.session_state.graph_nodes is not None:
-                nodes_df = st.session_state.graph_nodes
-                rels_df = st.session_state.graph_rels
-                html = create_visualization_graph(nodes_df, rels_df)
-                st.iframe(html, height="content")
+                if force_redraw or st.session_state.graph_html is None:
+                    nodes_df = st.session_state.graph_nodes
+                    rels_df = st.session_state.graph_rels
+                    html = create_visualization_graph(nodes_df, rels_df)
+                    st.session_state.graph_html = html
+                    st.iframe(html, height="content")
+                else:
+                    st.iframe(st.session_state.graph_html, height="content")
             else:
                 st.caption(message)
 
@@ -264,6 +268,8 @@ if "show_hidden_backends" not in st.session_state:
     st.session_state.show_hidden_backends = False
 if "UDF" not in st.session_state:
     st.session_state.UDF = []
+if "graph_html" not in st.session_state:
+    st.session_state.graph_html = None
 
 st.markdown(
     """
@@ -322,6 +328,7 @@ with _semantic_graph_col:
             disabled=st.session_state.suppress_example_buttons
         )
         if button:
+            st.session_state.graph_html = None
             if st.session_state.saved_context_graph_nodes is not None:
                 st.session_state.graph_nodes = st.session_state.saved_context_graph_nodes
                 st.session_state.graph_rels = st.session_state.saved_context_graph_rels
@@ -501,7 +508,7 @@ with col_chat:
                             st.session_state.graph_nodes = nodes_df
                             st.session_state.graph_rels = rels_df
                             st.session_state.context_graph_displayed = True
-                        _fill_context_graph_placeholder(context_graph_area, "No context graph for the selected settings.")
+                        _fill_context_graph_placeholder(context_graph_area, "No context graph for the selected settings.", force_redraw=True)
 
                         if (st.session_state.answer_validation and pending_reference_sql and sql_query):
                             progress_text = "Validating answer accuracy..."
