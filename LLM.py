@@ -227,9 +227,12 @@ PROMPT_VALIDATION_DATA_GENERATED = """## SQL Query
 
 def compare_answer_accuracy(conn, columns_to_compare: str, reference_sql: str, generated_sql: list[str], generated_answer: str = None) -> dict:
     with conn.cursor() as cur:
-        cur.execute(reference_sql)
-        ref_df = pd.DataFrame(cur.fetchall(), columns=[desc[0] for desc in cur.description])
-        ref_data = ref_df.to_markdown()
+        try:
+            cur.execute(reference_sql)
+            ref_df = pd.DataFrame(cur.fetchall(), columns=[desc[0] for desc in cur.description])
+            ref_data = ref_df.to_markdown()
+        except Exception as e:
+            return {"summary": "Error in reference SQL: " + str(e), "average_accuracy": None, "accuracy": {}}
         prompt = PROMPT_VALIDATION_DATA.format(focus=columns_to_compare,ref_sql=reference_sql, ref_data=ref_data, generated_answer=generated_answer)
         for sql in generated_sql:
             try:    

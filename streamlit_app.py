@@ -198,21 +198,20 @@ def open_settings_window():
         "Question",
         key="accuracy_question_input",
         value=st.session_state.UDF[0]["question"] if "UDF" in st.session_state and len(st.session_state.UDF) > 0 else "",
-        placeholder="How many employees are there in the company ?",
-        width=500
+        placeholder="As of today, what is the employee headcount for each age ?",
     )
     reference_sql_input = st.text_area(
         "SQL reference to validate the generated answer",
         key="accuracy_reference_sql_input",
-        placeholder="SELECT COUNT(*) AS employee_count FROM employees.employee;",
+        placeholder="SELECT\n  EXTRACT(YEAR FROM age(birth_date)) AS years_old_age,\n  count(id) as count_employees\nFROM employees.employee\nGROUP BY years_old_age\nORDER BY years_old_age",
         value=st.session_state.UDF[0]["reference_sql"] if "UDF" in st.session_state and len(st.session_state.UDF) > 0 else "",
-        width=500
+        height=180
     )
     comparison_instruction_input = st.text_input(
             "Comparison instruction to validate the generated answer",
             key="accuracy_comparison_instruction_input",
             value=st.session_state.UDF[0]["columns_to_compare"] if "UDF" in st.session_state and len(st.session_state.UDF) > 0 else "",
-            placeholder="Compare the result with employee_count column",
+            placeholder="Compare employees count using years_old_age as the reference column",
     )
     if st.button("Add to the list", key="set_accuracy_check_inputs", use_container_width=True):
         if question_input and reference_sql_input and comparison_instruction_input:

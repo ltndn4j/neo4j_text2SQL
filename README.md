@@ -159,6 +159,16 @@ You can click on the ⚙️ button to access the settings :
 * You can see/hide the tools used by the agent if you want to analyze how it answers
 * You can change the backend agent between `YAML agent` and `Neo4j Semantic Layer agent`. The agent chain and tools are the same between the 2 agents, except the tool providing the PostgreSQL description ([the YAML file](/data/database_schema.yaml) for the YAML agent, context graph limited to the question for the Semantic layer agent)
 
+#### Add your own question
+
+You can click on the button ![image](./image/playlist_add.png) to add your question.
+This will open a dialog window where you will need to fill 3 fields :
+* The question you want to ask to the agent.
+* The valid SQL query providing all the data required to provide an accurate answer to the question.
+* An instruction to define what columns/rows the LLM should use to validate the answer against the accurate data.
+
+After submitting the form, the question will be added to the example questions list.
+
 ## Improvements
 
 With Neo4j Graph Data Science capabilities, there are several possible improvement:
