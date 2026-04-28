@@ -399,8 +399,13 @@ with _settings_col:
 pending_prompt = st.session_state.pop("pending_prompt", None)
 pending_reference_sql = st.session_state.pop("pending_reference_sql", None)
 pending_columns_to_compare = st.session_state.pop("pending_columns_to_compare", None)
+queued_chat_prompt = st.session_state.pop("queued_chat_prompt", None)
 chat_input = st.chat_input("Ask about the employee dataset")
-prompt = pending_prompt or chat_input
+if chat_input:
+    st.session_state.queued_chat_prompt = chat_input
+    st.session_state.suppress_example_buttons = True
+    st.rerun()
+prompt = pending_prompt or queued_chat_prompt
 from_example_question = pending_prompt is not None
 
 col_chat, col_viz = st.columns([3, 2], gap="medium")
