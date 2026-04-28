@@ -165,10 +165,10 @@ async def chat(body: ChatRequest):
         result = await run_in_threadpool(
             executor.invoke, {"input": body.message.strip()}
         )
-    except Exception:
+    except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail="The agent could not complete this request.",
+            detail="The agent could not complete this request. Error: " + str(e),
         ) from None
     out = result.get("output", result)
     steps = result.get("intermediate_steps")
