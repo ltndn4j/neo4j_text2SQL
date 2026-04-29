@@ -19,8 +19,8 @@ def create_db_tools(conn: psycopg2.extensions.connection):
 
     @tool
     def run_sql(query: str) -> str:
-        """Execute a single PostgreSQL query.Use schema-qualified names. 
-        Prefer calling list_schema and/or semantic layer before executing. 
+        """Execute a single PostgreSQL query. Use schema-qualified names. This tool is used when you have the full query ready to execute.
+        Before using this tool, you must call the tool to get metadata schema to know the tables and columns to use in the query.
         On error, fix the SQL and try again."""
         try:
             with conn.cursor() as cur:
@@ -45,7 +45,7 @@ def create_db_tools(conn: psycopg2.extensions.connection):
     @tool
     def list_schema(pg_schema: str) -> str:
         """Return all table names and columns in the database schema (PostgreSQL).
-        Call this when you need the full catalog of tables and columns for writing SQL."""
+        Call this when you have a doubt about the tables and columns of a specific schema."""
         rows = []
         try:
             with conn.cursor() as cur:
