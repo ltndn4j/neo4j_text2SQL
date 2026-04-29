@@ -169,7 +169,7 @@ def create_visualization_graph(nodes_df: pd.DataFrame, rels_df: pd.DataFrame) ->
         for key, value in node.properties["properties"].items():
             if value is not None:
                 properties[key] = value
-        if "Value" in node.properties.get("labels"):
+        if "Value" in node.properties.get("labels") and properties.get("value") is not None:
             properties["name"] = properties.get("value")
         node.properties = properties
     for rel in vg.relationships:
