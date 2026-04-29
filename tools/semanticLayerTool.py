@@ -34,13 +34,10 @@ WITH collect(DISTINCT column) as columns
 UNWIND columns as sourceColumn
 UNWIND columns as targetColumn
 WITH sourceColumn, targetColumn
-CALL (sourceColumn, targetColumn) {
-    OPTIONAL MATCH links=(fromSchema:Schema)-->(:Table {name:sourceColumn.tableName})-->(fromColumn:Column)-[:HAS_FOREIGN_KEY|ON_COLUMN]-(:ForeignKey)-[:HAS_FOREIGN_KEY|ON_COLUMN]-(toColumn:Column)<--(:Table {name:targetColumn.tableName})<--(toSchema:Schema)
-    RETURN links, fromSchema, fromColumn, toSchema, toColumn
-    UNION 
-    OPTIONAL MATCH links=(fromSchema:Schema)-->(:Table {name:sourceColumn.tableName})-->(fromColumn:Column)-[:REFERENCES]-(toColumn:Column)<--(:Table {name:targetColumn.tableName})<--(toSchema:Schema)
-    RETURN links, fromSchema, fromColumn, toSchema, toColumn
-}
+OPTIONAL MATCH links = SHORTEST 1
+    (:Table {name:sourceColumn.tableName})
+    (()-[:HAS_COLUMN|HAS_FOREIGN_KEY|ON_COLUMN|REFERENCES]-(x)){0,16}
+    (targetTable:Table {name:targetColumn.tableName})
 """
 
 def create_semantic_tools(driver: neo4j.Driver, threshold: float,context: dict = None):
@@ -49,6 +46,7 @@ def create_semantic_tools(driver: neo4j.Driver, threshold: float,context: dict =
     def glossary_columns_and_joins(user_query: str, agent_query: str = None) -> str:
         """
         Get the metadata schema by semantic similarity to the query. Most likely the entry point to know how to query the dataset.
+        You must be able to answer the question with the metadata returned by this tool.
         * On user_query, provide the question exactly as it is asked by the user, without any pre-processing. 
         * On agent_query, provide the question as it is processed by the agent, which may include additional context or reformulation.
         """
@@ -61,17 +59,30 @@ def create_semantic_tools(driver: neo4j.Driver, threshold: float,context: dict =
             context["embeddings"] = {"user":user_embedding, "agent": agent_embedding}
             context["question"] = agent_query
         cypher=CYPHER_SIMILARITY_QUERY_BASE + """
-WITH DISTINCT sourceColumn as columnSimilarity, fromSchema, fromColumn, toSchema, toColumn
+WITH DISTINCT sourceColumn as columnSimilarity, targetTable, [step in x[..-1] where step:Column or step:Table | step] as path
+UNWIND range(0, CASE WHEN size(path)=0 THEN 0 ELSE size(path) - 2 END) AS i
+WITH DISTINCT columnSimilarity, targetTable, path, i, CASE WHEN path is null THEN NULL ELSE path[i] END AS current, CASE WHEN path is null THEN NULL ELSE path[i+1] END AS next
+WHERE (current:Column AND next:Column) OR size(path)=0 
+WITH DISTINCT 
+  columnSimilarity, 
+  targetTable, 
+  collect({
+    from_schema: current.schemaName,
+    from_table: current.tableName, 
+    from_column: current.name,
+    to_schema: next.schemaName, 
+    to_table:next.tableName, 
+    to_column: next.name
+  }) as join_path
 WITH columnSimilarity, 
-CASE 
-  WHEN toSchema IS NULL THEN NULL
-  ELSE {
-    source:{schema:fromSchema.name, table:fromColumn.tableName, column:fromColumn.name},
-    target:{schema:toSchema.name, table:toColumn.tableName, column:toColumn.name}
-  }
-END as join
-WITH columnSimilarity, collect(join) as table_joins
-
+  collect(
+  CASE
+    WHEN targetTable is NULL THEN NULL
+    ELSE {
+     targetTable:targetTable.name,
+     join_path:join_path
+    }
+  END) AS table_joins
 // Reach out to Schema and Database context
 MATCH (db:Database)-[:CONTAINS_SCHEMA]->(schema:Schema)-[:CONTAINS_TABLE]->(table:Table)-[:HAS_COLUMN]->(columnSimilarity)
 MATCH (table)-[:HAS_COLUMN]->(column:Column)

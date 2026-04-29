@@ -51,6 +51,7 @@ def load_schema(db_conn: psycopg2.extensions.connection, driver: neo4j.GraphData
             #retieve all the columns of the tables
             query = """
             SELECT
+                isc.table_schema,
                 isc.table_name,
                 isc.column_name,
                 isc.data_type,
@@ -69,38 +70,40 @@ def load_schema(db_conn: psycopg2.extensions.connection, driver: neo4j.GraphData
             for c in columns:
                 cypher="""
                     MERGE (t:Table {name: $table_name})
-                    MERGE (c:Column {tableName: $table_name, name: $column_name})
+                    MERGE (c:Column {schemaName: $schema_name, tableName: $table_name, name: $column_name})
                     SET c.type=$data_type, c.nullable=$is_nullable, c.embedding=$embedding
                     MERGE (t)-[:HAS_COLUMN]->(c)
                 """
                 embedding = openai.embeddings.create(
-                    input=f"{c[0]} {c[1]}",
+                    input=f"{c[1]} {c[2]}",
                     model=EMBEDDING_MODEL
                 ).data[0].embedding
 
                 params={
-                    "table_name": c[0],
-                    "column_name": c[1],
-                    "data_type": c[2],
-                    "is_nullable": c[3]=="YES",
+                    "schema_name": c[0],
+                    "table_name": c[1],
+                    "column_name": c[2],
+                    "data_type": c[3],
+                    "is_nullable": c[4]=="YES",
                     "embedding": embedding
                 }
                 session.run(cypher, params)
 
-                if type(c[4]) in (int, float) and 0 < c[4] < 50:
-                    query=f"SELECT DISTINCT {c[1]} FROM {schema_name}.{c[0]}"
+                if type(c[5]) in (int, float) and 0 < c[5] < 50:
+                    query=f"SELECT DISTINCT {c[2]} FROM {c[0]}.{c[1]}"
                     curVal = db_conn.cursor()
                     curVal.execute(query)
                     values = curVal.fetchall()
                     cypherValue="""
-                        MERGE (c:Column {tableName: $table_name, name: $column_name})
+                        MERGE (c:Column {schemaName: $schema_name, tableName: $table_name, name: $column_name})
                         MERGE (v:Value {columnName: $table_name+"."+$column_name, value: $value})
                         MERGE (c)-[:HAS_VALUE]->(v)
                     """
                     for value in values:
                         paramsValue={
-                            "table_name": c[0],
-                            "column_name": c[1],
+                            "schema_name": c[0],
+                            "table_name": c[1],
+                            "column_name": c[2],
                             "value": str(value[0])
                         }
                         session.run(cypherValue, paramsValue)
@@ -108,10 +111,12 @@ def load_schema(db_conn: psycopg2.extensions.connection, driver: neo4j.GraphData
             #Retrieve all the foreign keys of the tables
             query="""
             SELECT
+                tc.table_schema,
                 tc.table_name, 
                 tc.constraint_name, 
                 kcu.column_name, 
-                ccu.table_name AS foreign_table_name,
+                ccu.table_schema AS foreign_schema_name,
+				ccu.table_name AS foreign_table_name,
                 ccu.column_name AS foreign_column_name 
             FROM information_schema.table_constraints AS tc 
             JOIN information_schema.key_column_usage AS kcu
@@ -128,18 +133,20 @@ def load_schema(db_conn: psycopg2.extensions.connection, driver: neo4j.GraphData
             foreign_keys = cur.fetchall()
             for fk in foreign_keys:
                 cypher="""
-                    MERGE (c:Column {tableName: $table_name, name: $column_name})
+                    MERGE (c:Column {schemaName: $schema_name, tableName: $table_name, name: $column_name})
                     MERGE (fk:ForeignKey {name: $constraint_name})
-                    MERGE (cfk:Column {tableName: $foreign_table_name, name: $foreign_column_name})
+                    MERGE (cfk:Column {schemaName: $foreign_schema_name, tableName: $foreign_table_name, name: $foreign_column_name})
                     MERGE (c)-[:HAS_FOREIGN_KEY]->(fk)
                     MERGE (fk)-[:ON_COLUMN]->(cfk)
                 """
                 params={
-                    "table_name": fk[0],
-                    "column_name": fk[2],
-                    "constraint_name": fk[1],
-                    "foreign_table_name": fk[3],
-                    "foreign_column_name": fk[4]
+                    "schema_name": fk[0],
+                    "table_name": fk[1],
+                    "column_name": fk[3],
+                    "constraint_name": fk[2],
+                    "foreign_schema_name": fk[4],
+                    "foreign_table_name": fk[5],
+                    "foreign_column_name": fk[6]
                 }
                 session.run(cypher, params)
 
@@ -168,11 +175,12 @@ def load_schema(db_conn: psycopg2.extensions.connection, driver: neo4j.GraphData
                     MERGE (t)-[:HAS_INDEX]->(i)
                     WITH t, i
                     UNWIND $column_names AS col
-                    MERGE (c:Column {tableName: $table_name, name: col})
+                    MERGE (c:Column {schemaName: $schema_name, tableName: $table_name, name: col})
                     MERGE (i)-[:INDEXES_COLUMN]->(c)
                 """
                 params={
                     "index_name": index[0],
+                    "schema_name": schema_name,
                     "table_name": index[1],
                     "column_names": index[3]
                 }
@@ -185,11 +193,12 @@ def load_schema(db_conn: psycopg2.extensions.connection, driver: neo4j.GraphData
                         MERGE (t)-[:HAS_CONSTRAINT]->(co)
                         WITH t, co
                         UNWIND $column_names AS col
-                        MERGE (c:Column {tableName: $table_name, name: col})
+                        MERGE (c:Column {schemaName: $schema_name, tableName: $table_name, name: col})
                         MERGE (co)-[:CONSTRAINTS_COLUMN]->(c)
                     """
                     params={
                         "constraint_name": index[0],
+                        "schema_name": schema_name,
                         "table_name": index[1],
                         "column_names": index[3]
                     }
