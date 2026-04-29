@@ -16,6 +16,7 @@ from typing import Optional
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from langchain_core.callbacks import UsageMetadataCallbackHandler
+from langchain_core.messages import HumanMessage, AIMessage
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 import tools.postgresqlTool as db
@@ -60,26 +61,24 @@ def _serialize_usage(cb: UsageMetadataCallbackHandler, is_yaml_agent: bool = Fal
         return None
 
 def _serialize_sql_query(steps: list):
-    toolAction_SQL = [action for (action, result) in steps if action.tool == "run_sql"]
-    if len(toolAction_SQL) > 0:
-        return [action.tool_input.get('query') for action in toolAction_SQL]
-    return None
+    tools = [tool for sublist in [step.tool_calls for step in steps if isinstance(step, AIMessage)] for tool in sublist]
+    SQL_queries = [tool["args"].get("query") for tool in tools if tool["name"] == "run_sql"]
+    return SQL_queries
 
 def _serialize_tools(steps: list, question: Optional[str] = None):
-    tools = ["Question rephrased by agent: " + question] if question else []
-    tools.extend(["Tool used: " + action.tool for (action, result) in steps])
-    return tools
+    tools_name = ["Question rephrased by agent: " + question] if question else []
+    tools = [tool for sublist in [step.tool_calls for step in steps if isinstance(step, AIMessage)] for tool in sublist]
+    tools_name.extend(["Tool used: " + f"{tool["name"]} ({tool["args"]["pg_schema"]})" if tool["name"] == "list_schema" else tool["name"] for tool in tools])
+    return tools_name
 
-def clean_answer(out: str):
-    value = out
-    if isinstance(value, str):
-        return value
-    if isinstance(value, list):
-        value = out[0]
-    if isinstance(value, dict):
-        if "text" in value:
-            return value["text"]
-    return str(value)
+def clean_answer(steps: list):
+    final_answer = str(steps[-1])
+    for step in steps:
+        if isinstance(step, AIMessage):
+            for content in step.content:
+                if content.get("phase") == "final_answer":
+                    final_answer = content["text"]
+    return str(final_answer)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -113,7 +112,7 @@ class ChatRequest(BaseModel):
         description="If true, only return the SQL query.",
     )
     threshold: float = Field(
-        0.65,
+        0.7,
         description="The threshold for the Neo4j semantic layer.",
     )
 
@@ -123,7 +122,7 @@ class ChatResponse(BaseModel):
     usage: Optional[dict] = None
     sql_queries: Optional[list] = None
     tools: Optional[list] = None
-    embeddings: Optional[list] = None
+    embeddings: Optional[dict] = None
 
 
 class ValidateSQLAnswerRequest(BaseModel):
@@ -138,9 +137,9 @@ class ValidateSQLAnswerResponse(BaseModel):
     accuracy_details: dict
 
 class ContextGraphRequest(BaseModel):
-    embedding: Optional[list] = None
+    embeddings: Optional[dict] = None
     threshold: float = Field(
-        0.65,
+        0.7,
         description="The threshold for the Neo4j semantic layer.",
     )
 
@@ -163,22 +162,21 @@ async def chat(body: ChatRequest):
     )
     try:
         result = await run_in_threadpool(
-            executor.invoke, {"input": body.message.strip()}
+            executor.invoke, {"messages": [HumanMessage(content=body.message.strip())]}
         )
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail="The agent could not complete this request. Error: " + str(e),
         ) from None
-    out = result.get("output", result)
-    steps = result.get("intermediate_steps")
-    answer = clean_answer(out)
+    
+    steps = result.get("messages", [])
     return ChatResponse(
-        answer=answer,
+        answer=clean_answer(steps),
         usage=_serialize_usage(cb, body.yaml_agent), 
         sql_queries=_serialize_sql_query(steps), 
         tools=_serialize_tools(steps, context.get("question", None)),
-        embeddings=context.get("embedding", None)
+        embeddings=context.get("embeddings", None)
     )
 
 @app.post("/yaml-llm", response_model=ChatResponse)
@@ -208,17 +206,17 @@ async def validate_sql_answer(body: ValidateSQLAnswerRequest):
     result = compare_answer_accuracy(app.state.db_conn, body.columns_to_compare, body.reference_sql, body.generated_sql, body.generated_answer)
     return ValidateSQLAnswerResponse(
         summary=result["summary"],
-        accuracy=0 if result["average_accuracy"] is None else result["average_accuracy"],
+        accuracy=0 if result["average_accuracy"] is None or result["average_accuracy"] < 0 else result["average_accuracy"],
         accuracy_details=result["accuracy"],
     )
 
 @app.post("/context-graph")
 async def context_graph(body: ContextGraphRequest):
     await check_db_conn(app)
-    if body.embedding is None:
+    if body.embeddings is None:
         df = get_model(app.state.neo4j_driver)
     else:
-        df = get_context_graph(app.state.neo4j_driver, body.embedding, body.threshold)
+        df = get_context_graph(app.state.neo4j_driver, body.embeddings, body.threshold)
     # Convert to Parquet in memory
     buffer = io.BytesIO()
     df.to_parquet(buffer, engine='pyarrow')

@@ -109,7 +109,8 @@ def run_yaml_llm_question(
                 "total_tokens": response.usage_metadata["total_tokens"],
             }
     try:
-        response_json = json.loads(response.content[0]["text"])
+        response_content = [c for c in response.content if c["type"] == "text"]
+        response_json = json.loads(response_content[0]["text"])
         
     except (json.JSONDecodeError, TypeError) as e:
         return {
@@ -174,7 +175,8 @@ def run_yaml_llm_question(
                     tools=[],
                     store=False,
                 )
-                output_text = response_with_data.content[0]["text"]
+                response_with_data_content = [c for c in response_with_data.content if c["type"] == "text"]
+                output_text = response_with_data_content[0]["text"]
                 input_tokens = (
                     response.usage_metadata["input_tokens"]
                     + response_with_data.usage_metadata["input_tokens"]
@@ -262,7 +264,8 @@ def compare_answer_accuracy(conn, columns_to_compare: str, reference_sql: str, g
         tools=[],
         store=False,
     )
-    return json.loads(response.content[0]["text"])
+    response_content = [c for c in response.content if c["type"] == "text"]
+    return json.loads(response_content[0]["text"])
 
 
 def test_yaml_grounding():

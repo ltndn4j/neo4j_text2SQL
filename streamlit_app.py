@@ -57,7 +57,7 @@ GROUP BY e.gender""",
         "type": "default",
     },
     {
-        "question": "Can you give me all the first names on each role that are most common ?",
+        "question": "Can you give me all the first names on each current role that are most common ?",
         "reference_sql": """WITH RankedEmployees AS (
     SELECT 
         t.title, 
@@ -128,11 +128,11 @@ def get_semantic_layer_model(api_base: str) -> tuple[pd.DataFrame, pd.DataFrame]
         })
         return nodes_df, rels_df
 
-def get_context_graph(api_base: str, embedding: list) -> tuple[pd.DataFrame, pd.DataFrame]:
+def get_context_graph(api_base: str, embeddings: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
     node_cols = ["id", "labels", "properties"]
     rel_cols = ["type", "source", "target", "properties"]
     with httpx.Client(timeout=300.0) as client:
-        r = client.post(f"{api_base}/context-graph", json={"embedding": embedding, "threshold": st.session_state.threshold})
+        r = client.post(f"{api_base}/context-graph", json={"embeddings": embeddings, "threshold": st.session_state.threshold})
         df = pd.read_parquet(io.BytesIO(r.content))
         nodes_df = df.loc[df["class"] == "NODE", node_cols].copy()
         rels_df = df.loc[df["class"] == "REL", rel_cols].copy()
@@ -169,6 +169,8 @@ def create_visualization_graph(nodes_df: pd.DataFrame, rels_df: pd.DataFrame) ->
         for key, value in node.properties["properties"].items():
             if value is not None:
                 properties[key] = value
+        if "Value" in node.properties.get("labels"):
+            properties["name"] = properties.get("value")
         node.properties = properties
     for rel in vg.relationships:
         properties = {"type": rel.properties.get("type")}
@@ -500,7 +502,7 @@ with col_chat:
                         if st.session_state.show_tools and tools:
                             with st.expander("Tools"):
                                 st.json(tools)
-                        accuracy_details = {}
+                        accuracy_details = None
     
                         # Context graph for the right column (keep last graph until a new one succeeds)
                         if embeddings:
@@ -511,10 +513,12 @@ with col_chat:
                         _fill_context_graph_placeholder(context_graph_area, "No context graph for the selected settings.", force_redraw=True)
 
                         if (st.session_state.answer_validation and pending_reference_sql and sql_query):
+                            accuracy_details = {}
                             progress_text = "Validating answer accuracy..."
                             total_steps = (int(st.session_state.validation_loop_count)+1)*2
                             my_bar = st.progress(1/total_steps, text=progress_text)
                             with my_bar:
+                                mistakes = []
                                 with httpx.Client(timeout=300.0) as v_client:
                                     sql_validation = request_answer_sql_validation(
                                         v_client,
@@ -533,19 +537,23 @@ with col_chat:
                                     #ACCURACY RESAMPLE LOOPS
                                     params = {"message": prompt,"yaml_agent": api_mode == "yaml_agent", "only_sql": True}
                                     average_accuracy = [sql_validation["accuracy"]]
+                                    total_tokens = usage_data['total_tokens']
                                     for i in range(int(st.session_state.validation_loop_count)):
                                         r = v_client.post(f"{api_base}{endpoint}", json=params)
                                         generated_sql = r.json().get("sql_queries")
+                                        total_tokens += r.json().get("usage", {}).get("total_tokens", 0)
                                         my_bar.progress((2*i+3)/total_steps, text=progress_text)
                                         v = request_answer_sql_validation(v_client,api_base,pending_columns_to_compare,pending_reference_sql,generated_sql, r.json().get("answer"))
-                                        if v["accuracy"] < 0.2:
-                                            average_accuracy.append({"value": v["accuracy"], "summary": v["summary"], "sql": generated_sql})
-                                        else:
-                                            average_accuracy.append(v["accuracy"])
-                                        accuracy_details["average_accuracy_values"] = average_accuracy
+                                        if v["accuracy"] < 0.5:
+                                            mistakes.append({"loopNumber":i+1,"accuracy": v["accuracy"], "summary": v["summary"]})
+                                        average_accuracy.append(v["accuracy"])
+                                        accuracy_details["accuracy_values"] = average_accuracy
                                         my_bar.progress((2*i+4)/total_steps, text=progress_text)
-                                sum_accuracy = sum(v["value"] if isinstance(v, dict) else v for v in average_accuracy)
+                                if len(mistakes) > 0:
+                                    accuracy_details["mistakes_focus"] = mistakes
+                                sum_accuracy = sum(average_accuracy)
                                 accuracy_details["average_accuracy"] = sum_accuracy / len(average_accuracy)
+                                accuracy_details["average_total_tokens"] = total_tokens / len(average_accuracy)
                                 icon = _accuracy_answer_icon(float(accuracy_details["average_accuracy"]))
                             with st.expander(f"Accuracy &nbsp; {icon}"):
                                 st.json(accuracy_details)

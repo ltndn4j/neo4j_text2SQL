@@ -6,7 +6,7 @@ load_dotenv(override=True)
 def ask_question():
     driver = neo4jdb.getDriver()
     try:
-        tools = create_semantic_tools(driver, threshold=0.65)
+        tools = create_semantic_tools(driver, threshold=0.7)
         result = tools[0].invoke(input("Enter a question about HR data: "))
         print(result)
     finally:

@@ -1,5 +1,6 @@
 import neo4j
 import pandas as pd
+from tools.semanticLayerTool import CYPHER_SIMILARITY_QUERY_BASE
 
 SCHEMA_QUERY = """
 CALL db.schema.visualization() yield nodes, relationships
@@ -22,31 +23,7 @@ def get_model(driver: neo4j.Driver) -> pd.DataFrame:
     )
     return result
 
-CONTEXT_QUERY = """
-CYPHER 25
-CALL () {
-    MATCH (column:Column)
-        SEARCH column IN (VECTOR INDEX column_similarity FOR $queryEmbedding LIMIT 10) SCORE as score
-        WHERE score>$threshold
-    RETURN DISTINCT column
-    UNION
-    MATCH (entryTerm:Term)
-        SEARCH entryTerm IN (VECTOR INDEX term_similarity FOR $queryEmbedding LIMIT 10) SCORE as score
-        WHERE score>$threshold
-    MATCH (entryTerm)-[:HAS_TERM*0..]->(:Term)-[:DEFINES|HAS_COLUMN*1..2]->(column:Column)
-    RETURN DISTINCT column
-}
-WITH collect(column) as columns
-UNWIND columns as sourceColumn
-UNWIND columns as targetColumn
-WITH sourceColumn, targetColumn
-CALL (sourceColumn, targetColumn) {
-    OPTIONAL MATCH links=(fromSchema:Schema)-->(:Table {name:sourceColumn.tableName})-->(fromColumn:Column)-[:HAS_FOREIGN_KEY|ON_COLUMN]-(:ForeignKey)-[:HAS_FOREIGN_KEY|ON_COLUMN]-(toColumn:Column)<--(:Table {name:targetColumn.tableName})<--(toSchema:Schema)
-    RETURN links
-    UNION 
-    OPTIONAL MATCH links=(fromSchema:Schema)-->(:Table {name:sourceColumn.tableName})-->(fromColumn:Column)-[:REFERENCES]-(toColumn:Column)<--(:Table {name:targetColumn.tableName})<--(toSchema:Schema)
-    RETURN links
-}
+CONTEXT_QUERY = CYPHER_SIMILARITY_QUERY_BASE + """
 WITH DISTINCT sourceColumn as columnSimilarity, links
 MATCH (table:Table)-[:HAS_COLUMN]->(columnSimilarity:Column)
 MATCH p=(:Schema)-[:CONTAINS_TABLE]->(table)-[:HAS_COLUMN]->(column:Column)
@@ -67,10 +44,10 @@ CALL (path) {
 RETURN DISTINCT class, id, labels, type, source, target, properties
 """
 
-def get_context_graph(driver: neo4j.Driver, embedding: list, threshold: float) -> pd.DataFrame:
+def get_context_graph(driver: neo4j.Driver, embeddings: dict, threshold: float) -> pd.DataFrame:
     result = driver.execute_query(
         CONTEXT_QUERY,
-        {"queryEmbedding":embedding, "threshold":threshold},
+        {"userEmbedding": embeddings["user"], "agentEmbedding": embeddings["agent"], "threshold":threshold},
         result_transformer_=neo4j.Result.to_df
     )
     return result
