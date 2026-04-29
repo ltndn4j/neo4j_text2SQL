@@ -80,6 +80,21 @@ CREATE TABLE IF NOT EXISTS recruitment.candidate (
     resume_url TEXT
 );
 
+INSERT INTO recruitment.candidate (email, first_name, last_name, phone, resume_url)
+VALUES 
+    ('alice.johnson@example.com', 'Alice', 'Johnson', '555-0101', 'https://storage.link/resumes/ajohnson_2024.pdf'),
+    ('bob.smith@provider.net', 'Bob', 'Smith', '555-0102', 'https://storage.link/resumes/bsmith_cv.pdf'),
+    ('charlie.davis@webmail.com', 'Charlie', 'Davis', '555-0103', 'https://storage.link/resumes/cdavis_final.pdf'),
+    ('diana.prince@corp.com', 'Diana', 'Prince', '555-0104', 'https://storage.link/resumes/dprince_resume.pdf'),
+    ('evan.wright@email.org', 'Evan', 'Wright', '555-0105', 'https://storage.link/resumes/ewright_portfolio.pdf'),
+    ('fiona.gomez@career.io', 'Fiona', 'Gomez', '555-0106', 'https://storage.link/resumes/fgomez_2023.pdf'),
+    ('george.miller@tech.com', 'George', 'Miller', '555-0107', 'https://storage.link/resumes/gmiller_dev.pdf'),
+    ('hannah.abbot@service.net', 'Hannah', 'Abbot', '555-0108', 'https://storage.link/resumes/habbot_cv.pdf'),
+    ('ian.malcolm@dino.res', 'Ian', 'Malcolm', '555-0109', 'https://storage.link/resumes/imalcolm_theory.pdf'),
+    ('jenna. Ortega@cinema.com', 'Jenna', 'Ortega', '555-0110', 'https://storage.link/resumes/jortega_profile.pdf'),
+    ('kevin.hart@comedy.org', 'Kevin', 'Hart', '555-0111', 'https://storage.link/resumes/khart_bio.pdf'),
+    ('laura.palmer@peaks.com', 'Laura', 'Palmer', '555-0112', 'https://storage.link/resumes/lpalmer_v3.pdf');
+
 CREATE TABLE IF NOT EXISTS recruitment.application (
     id SERIAL PRIMARY KEY,
     requisition_id INTEGER NOT NULL REFERENCES recruitment.job_requisition (id),

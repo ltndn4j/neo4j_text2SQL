@@ -37,9 +37,9 @@ THRESHOLD = 0.7
 # Curated example questions with reference SQL (expected answer query).
 QUESTION_SUGGESTIONS = [
     {
-        "question": "How many divisions are there in the company ?",
-        "reference_sql": "SELECT COUNT(*) AS division_count FROM employees.department;",
-        "columns_to_compare": "division_count",
+        "question": "How many candidates are there ?",
+        "reference_sql": "SELECT COUNT(*) AS candidate_count FROM recruitment.candidate;",
+        "columns_to_compare": "candidate_count",
         "type": "default",
     },
     {
