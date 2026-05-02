@@ -96,6 +96,7 @@ def run_tests():
                     accuracy, tokens = future.result()
                     accuracies.append(accuracy)
                     usages.append(tokens)
+                    print(f"Running : {future.running()}")
             print(f"Average accuracy for \033[94m{'yaml' if yaml_agent else 'semantic layer'} agent\033[0m for question \033[94m{question['question']}\033[0m: \033[92m{sum(accuracies) / loops}\033[0m [~{sum(usages) / loops} tokens]")
             result.append({
                 "question": question["question"],
