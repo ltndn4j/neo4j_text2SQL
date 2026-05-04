@@ -15,6 +15,7 @@ Or use the CLI:
 import os
 import pandas as pd
 import io
+import json
 import httpx
 import streamlit as st
 from neo4j_viz.colors import ColorSpace
@@ -33,6 +34,7 @@ PUBLIC_API_MODES = ["yaml_agent", "agent"]
 HIDDEN_API_MODES = ["yaml_llm"]
 
 THRESHOLD = 0.7
+WORKERS = 6
 
 # Curated example questions with reference SQL (expected answer query).
 QUESTION_SUGGESTIONS = [
@@ -92,6 +94,8 @@ def request_answer_sql_validation(
     backend: str = PUBLIC_API_MODES[0],
     threshold: float = THRESHOLD,
     resample_loops: int = 0,
+    workers: int = WORKERS,
+    on_progress=None
 ) -> dict:
     """
     Call POST ``{api_base}/validate-answer`` with the reference and generated SQL.
@@ -99,23 +103,28 @@ def request_answer_sql_validation(
     The FastAPI route is not implemented yet; this will raise until the server adds it.
     """
     base = api_base.rstrip("/")
-    response = client.post(
-        f"{base}/validate-answer",
-        json={
-            "columns_to_compare": columns_to_compare,
-            "reference_sql": reference_sql, 
-            "generated_sql": generated_sql, 
-            "generated_answer": answer,
-            "user_message": user_message,
-            "backend": backend,
-            "threshold": threshold,
-            "resample_loops": resample_loops
-
-        },
-    )
-    response.raise_for_status()
-    return response.json()
-
+    payload = {
+        "columns_to_compare": columns_to_compare,
+        "reference_sql": reference_sql, 
+        "generated_sql": generated_sql, 
+        "generated_answer": answer,
+        "user_message": user_message,
+        "backend": backend,
+        "threshold": threshold,
+        "resample_loops": resample_loops,
+        "workers": workers
+    }
+    headers={"Accept": "text/event-stream"}
+    with client.stream("POST", f"{base}/validate-answer", json=payload, headers=headers) as response:
+        for line in response.iter_lines():
+            if line:
+                data = json.loads(line)
+                if data.get("status") == "running":
+                    on_progress(data.get("done", 0))
+                elif data.get("status") == "error":
+                    return {"summary": data.get("message"), "accuracy":0, "accuracy_details":{}}
+                else:
+                    return data.get("data")
 
 def _queue_suggestion(question: str, reference_sql: str, columns_to_compare: str) -> None:
     st.session_state.pending_prompt = question
@@ -266,6 +275,8 @@ if "validation_loop_count" not in st.session_state:
     st.session_state.validation_loop_count = 0
 if "threshold" not in st.session_state:
     st.session_state.threshold = THRESHOLD
+if "workers" not in st.session_state:
+    st.session_state.workers = WORKERS
 if "show_sql_query" not in st.session_state:
     st.session_state.show_sql_query = False
 if "show_tools" not in st.session_state:
@@ -308,7 +319,10 @@ st.markdown(
         text-align: left;
         width: auto;
     }
-    div.st-key-agent_settings_header button:hover,
+    div.st-key-agent_settings_header button:hover {
+        cursor: default;
+        color: inherit;
+    },
     div.st-key-agent_settings_header button:focus {
         border: none;
         color: inherit;
@@ -363,7 +377,7 @@ with _semantic_graph_col:
 with _settings_col:
     with st.container(horizontal_alignment="right"):
         with st.popover("⚙️", help="Settings", disabled=st.session_state.suppress_example_buttons):
-            if st.button("**Define the settings for the agent**",key="agent_settings_header",type="tertiary"):
+            if  st.button("**Define the settings for the agent**",key="agent_settings_header",type="tertiary"):
                 st.session_state.show_hidden_backends = True
                 st.rerun()
             st.session_state.answer_validation = st.toggle(
@@ -371,15 +385,24 @@ with _settings_col:
                 value=True,
                 help="For curated example questions, compare the generated answer to the reference",
             )
+            resample_loops_options = list(range(20))
+            if st.session_state.show_hidden_backends:
+                resample_loops_options += [29, 39, 49]
             st.session_state.validation_loop_count = st.select_slider(
                 "Accuracy resample loops",
-                options=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+                options=resample_loops_options,
                 value=0,
                 help="Re-run the backend this many times to get an average accuracy. Set to 0 to disable.",
                 disabled=not st.session_state.answer_validation,
             )
-            if st.session_state.validation_loop_count > 2:
-                st.warning("Many loops will take 2-3mn.", icon="🚨")
+            if st.session_state.show_hidden_backends:
+                st.session_state.workers = st.select_slider(
+                    "Number of workers for parallel processing",
+                    options=[2, 4, 6, 8, 10],
+                    value=WORKERS
+                )
+            if st.session_state.validation_loop_count > 6:
+                st.warning("Many loops may take 1-2mn.", icon="🚨")
             st.session_state.show_usage = st.toggle(
                 "Usage",
                 value=True,
@@ -412,11 +435,13 @@ with _settings_col:
                 key="api_mode",
             )
             if st.session_state.show_hidden_backends:
+                print(f"api_mode: {api_mode}")
                 st.session_state.threshold = st.select_slider(
                     "Semantic similarity threshold",
                     options=[0, 0.2, 0.4, 0.5, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85],
                     value=THRESHOLD,
                     disabled=api_mode != "agent",
+                    help="Select the Neo4j semantic layer backend to enable this option. Use with caution, higher threshold reduces provided context."
                 )
 
 pending_prompt = st.session_state.pop("pending_prompt", None)
@@ -528,9 +553,10 @@ with col_chat:
 
                         if (st.session_state.answer_validation and pending_reference_sql and sql_query):
                             accuracy_details = {}
-                            progress_text = "Validating answer accuracy..."
-                            total_steps = (int(st.session_state.validation_loop_count)+1)*2
-                            my_bar = st.progress(1/total_steps, text=progress_text)
+                            total_loops = int(st.session_state.validation_loop_count)+1
+                            progressBar_message = "Validating answer accuracy..."
+                            progress_text = f"{progressBar_message} 0/{total_loops}"
+                            my_bar = st.progress(0/total_loops, text=progress_text)
                             with my_bar:
                                 mistakes = []
                                 with httpx.Client(timeout=300.0) as v_client:
@@ -544,7 +570,12 @@ with col_chat:
                                         user_message=prompt,
                                         backend=api_mode,
                                         threshold=st.session_state.threshold,
-                                        resample_loops=st.session_state.validation_loop_count
+                                        resample_loops=st.session_state.validation_loop_count,
+                                        workers=st.session_state.workers,
+                                        on_progress=lambda p: my_bar.progress(
+                                            p / total_loops,
+                                            text=f"{progressBar_message} {p}/{total_loops}",
+                                        )
                                     )
                                     if "average_accuracy" in sql_validation and sql_validation["average_accuracy"] is not None:
                                         accuracy_details = sql_validation

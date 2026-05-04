@@ -12,6 +12,7 @@ Pair with Streamlit (terminal 2); set API_BASE to this server's URL.
 import json
 import io
 from fastapi import Response, FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from typing import Optional
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
@@ -24,7 +25,8 @@ from agent import create_executor
 from LLM import run_yaml_llm_question, compare_answer_accuracy
 import neo4jHelpers.database as neo4jdb
 from semanticLayer import get_context_graph, get_model
-
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Iterator
 
 def _db_conn_ok(conn) -> bool:
     try:
@@ -134,16 +136,7 @@ class ValidateAnswerRequest(BaseModel):
     backend: Optional[str] = None
     threshold: Optional[float] = 0.7
     resample_loops: Optional[int] = 0
-
-class ValidateAnswerResponse(BaseModel):
-    summary: str
-    accuracy: float
-    accuracy_details: dict
-    average_accuracy: Optional[float] = None
-    average_accuracy_values: Optional[list[float]] = None
-    average_total_tokens_resample: Optional[int] = None
-    average_accuracy_summary_focus: Optional[list[dict]] = None
-    
+    workers: Optional[int] = 6
 
 class ContextGraphRequest(BaseModel):
     embeddings: Optional[dict] = None
@@ -156,7 +149,7 @@ class ContextGraphRequest(BaseModel):
 def health():
     return {"status": "ok"}
 
-async def _answer_question(threshold: float, yaml_agent: bool, message: str):
+def _answer_question(threshold: float, yaml_agent: bool, message: str):
     cb = UsageMetadataCallbackHandler()
     context = {}
     executor = create_executor(
@@ -167,9 +160,7 @@ async def _answer_question(threshold: float, yaml_agent: bool, message: str):
         yaml_agent=yaml_agent,
         context=context
     )
-    result = await run_in_threadpool(
-        executor.invoke, {"messages": [HumanMessage(content=message.strip())]}
-    )
+    result = executor.invoke({"messages": [HumanMessage(content=message.strip())]})
     steps = result.get("messages", [])
     return cb, steps, context
 
@@ -177,7 +168,7 @@ async def _answer_question(threshold: float, yaml_agent: bool, message: str):
 async def chat(body: ChatRequest):
     await check_db_conn(app)
     try:
-        cb, steps, context = await _answer_question(body.threshold, body.yaml_agent, body.message)
+        cb, steps, context = await run_in_threadpool(_answer_question, body.threshold,body.yaml_agent, body.message)
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -213,7 +204,7 @@ async def yaml_llm(body: ChatRequest):
     )
 
 
-async def _resample_answer(backend: str, user_message: str, threshold: float, columns_to_compare: str, reference_sql: str):
+def _resample_answer(backend: str, user_message: str, threshold: float, columns_to_compare: str, reference_sql: str):
     generated_sql = []
     generated_answer = ""
     if backend == "yaml_llm":
@@ -223,47 +214,84 @@ async def _resample_answer(backend: str, user_message: str, threshold: float, co
         generated_answer = out["answer"]
     else:
         isYamlAgent = backend == "yaml_agent"
-        cb, steps, context = await _answer_question(threshold, isYamlAgent, user_message)
+        cb, steps, context = _answer_question(threshold, isYamlAgent, user_message)
         total_tokens = _serialize_usage(cb, isYamlAgent)["total_tokens"]
         generated_sql = _serialize_sql_query(steps)
         generated_answer = clean_answer(steps),    
     resample_result = compare_answer_accuracy(app.state.db_conn, columns_to_compare, reference_sql, generated_sql, generated_answer)
     return resample_result["accuracy"], resample_result["summary"], total_tokens
 
-@app.post("/validate-answer", response_model=ValidateAnswerResponse)
+@app.post("/validate-answer")
 async def validate_answer(body: ValidateAnswerRequest):
     await check_db_conn(app)
-    conn = app.state.db_conn
-    result = compare_answer_accuracy(conn, body.columns_to_compare, body.reference_sql, body.generated_sql, body.generated_answer)
-    average_accuracy = None
-    average_accuracy_values = None
-    average_tokens = None
-    summary_focus =  None
 
-    if body.resample_loops > 0:
-        average_accuracy_values = [result["accuracy"]]
-        if result["accuracy"] < 0.5:
-            summary_focus = [{"loopNumber":0,"accuracy": result["accuracy"], "summary": result["summary"]}]
-        else:
-            summary_focus = []
-        total_tokens = 0
-        for i in range(body.resample_loops):
-            accuracy, summary, total_tokens = await _resample_answer(body.backend, body.user_message, body.threshold, body.columns_to_compare, body.reference_sql)
-            average_accuracy_values.append(accuracy)
-            if accuracy < 0.5:
-                summary_focus.append({"loopNumber":i+1,"accuracy": accuracy, "summary": summary})
-            total_tokens += total_tokens
-        average_tokens = total_tokens / body.resample_loops
-        average_accuracy = sum(average_accuracy_values) / len(average_accuracy_values)
-
-    return ValidateAnswerResponse(
-        summary=result["summary"],
-        accuracy=result["accuracy"],
-        accuracy_details=result["accuracy_details"],
-        average_accuracy=average_accuracy,
-        average_accuracy_values=average_accuracy_values,
-        average_total_tokens_resample=average_tokens,
-        average_accuracy_summary_focus=summary_focus
+    def stream() -> Iterator[str]:
+        result = compare_answer_accuracy(app.state.db_conn, body.columns_to_compare, body.reference_sql, body.generated_sql, body.generated_answer)
+        average_accuracy = None
+        average_accuracy_values = None
+        average_tokens = None
+        summary_focus =  None
+        if body.resample_loops > 0:
+            average_accuracy_values = [result["accuracy"]]
+            if result["accuracy"] < 0.5:
+                summary_focus = [{"loopNumber":0,"accuracy": result["accuracy"], "summary": result["summary"]}]
+            else:
+                summary_focus = []
+            total_tokens = 0
+            done = 1
+            yield json.dumps({"status":"running", "done":done})+'\n'
+            try:
+                with ThreadPoolExecutor(max_workers=body.workers) as executor:
+                    futures = [
+                        executor.submit(
+                            _resample_answer,
+                            body.backend, 
+                            body.user_message, 
+                            body.threshold, 
+                            body.columns_to_compare, 
+                            body.reference_sql
+                        )
+                        for _ in range(body.resample_loops)
+                    ]
+                    for future in as_completed(futures):
+                        accuracy = None
+                        try:
+                            accuracy, summary, tokens = future.result()
+                            average_accuracy_values.append(accuracy)
+                            if accuracy < 0.5:
+                                summary_focus.append({"loopNumber":done,"accuracy": accuracy, "summary": summary})
+                            total_tokens += tokens
+                            done += 1
+                        except Exception as e:
+                            average_accuracy_values.append(0)
+                            summary_focus.append({"loopNumber":done,"accuracy": 0, "summary": str(e)})
+                            done += 1
+                        yield json.dumps({"status":"running", "done":done})+'\n'
+                average_tokens = round(total_tokens / body.resample_loops)
+                average_accuracy = round(sum(average_accuracy_values) / len(average_accuracy_values), 3)
+            except Exception as e:
+                yield json.dumps({"status":"error", "message": "The validation process has failed. Errors: " + str(e)})+'\n'
+        response = {
+            "status":"done",
+            "data": {
+                "summary":result["summary"],
+                "accuracy":result["accuracy"],
+                "accuracy_details":result["accuracy_details"],
+                "average_accuracy":average_accuracy,
+                "average_accuracy_values":average_accuracy_values,
+                "average_total_tokens_resample":average_tokens,
+                "average_accuracy_summary_focus":summary_focus
+            }
+        }
+        yield json.dumps(response)+'\n'
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 @app.post("/context-graph")

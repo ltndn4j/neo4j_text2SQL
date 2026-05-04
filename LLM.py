@@ -195,6 +195,7 @@ def run_yaml_llm_question(
             input_tokens = response.usage_metadata["input_tokens"]
             output_tokens = response.usage_metadata["output_tokens"]
             total_tokens = response.usage_metadata["total_tokens"]
+            conn.rollback()
 
     return {
         "with_error": failed,
@@ -234,7 +235,8 @@ def compare_answer_accuracy(conn, columns_to_compare: str, reference_sql: str, g
             ref_df = pd.DataFrame(cur.fetchall(), columns=[desc[0] for desc in cur.description])
             ref_data = ref_df.to_markdown()
         except Exception as e:
-            return {"summary": "Error in reference SQL: " + str(e), "average_accuracy": None, "accuracy": {}}
+            conn.rollback()
+            return {"summary": "Error in reference SQL: " + str(e), "accuracy": 0, "accuracy_details": {}}
         prompt = PROMPT_VALIDATION_DATA.format(focus=columns_to_compare,ref_sql=reference_sql, ref_data=ref_data, generated_answer=generated_answer)
         for sql in generated_sql:
             try:    
@@ -243,6 +245,7 @@ def compare_answer_accuracy(conn, columns_to_compare: str, reference_sql: str, g
                 gen_data = gen_df.to_markdown()
             except Exception as e:
                 gen_data = f"Error: {e}"
+                conn.rollback()
             prompt += PROMPT_VALIDATION_DATA_GENERATED.format(gen_sql=sql, gen_data=gen_data)
     response = llm.invoke(
         model=MODEL_NAME,
@@ -268,7 +271,7 @@ def compare_answer_accuracy(conn, columns_to_compare: str, reference_sql: str, g
     result = json.loads(response_text[0]["text"])
     return {
         "summary": result.get("summary"),
-        "accuracy": 0 if not isinstance(result.get("average_accuracy"), (int, float)) or result.get("average_accuracy") < 0 else result.get("average_accuracy"),
+        "accuracy": result.get("average_accuracy") if isinstance(result.get("average_accuracy"), (int, float)) and result.get("average_accuracy") > 0 else 0,
         "accuracy_details": result.get("accuracy")
     }
 
