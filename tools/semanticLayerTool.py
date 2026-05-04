@@ -77,7 +77,7 @@ WITH DISTINCT
 WITH columnSimilarity, 
   collect(
   CASE
-    WHEN targetTable is NULL THEN NULL
+    WHEN targetTable IS NULL OR targetTable.name=columnSimilarity.tableName THEN NULL
     ELSE {
      targetTable:targetTable.name,
      join_path:join_path

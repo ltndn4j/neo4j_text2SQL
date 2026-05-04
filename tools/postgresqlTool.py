@@ -30,6 +30,7 @@ def create_db_tools(conn: psycopg2.extensions.connection):
                 colnames = [d[0] for d in cur.description]
                 rows = cur.fetchall()
         except Exception as e:
+            conn.rollback()
             return f"SQL error: {e}"
         if not rows:
             return "0 rows.\nColumns: " + ", ".join(colnames)

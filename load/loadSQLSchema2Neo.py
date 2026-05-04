@@ -204,7 +204,7 @@ def load_schema(db_conn: psycopg2.extensions.connection, driver: neo4j.GraphData
                     }
                     session.run(cypher, params)
 
-            #add vector index if no exists
+            #add vector and range indexes if not exist
             session.run(f"""
             CREATE VECTOR INDEX column_similarity IF NOT EXISTS
                 FOR (c:Column)
@@ -216,6 +216,7 @@ def load_schema(db_conn: psycopg2.extensions.connection, driver: neo4j.GraphData
                     }}
                 }}
             """)
+            session.run("CREATE INDEX table_index IF NOT EXISTS FOR (t:Table) ON (t.name)")
 
 def load(driver: neo4j.GraphDatabase.driver, initialize: bool = False):
     #Connect to the PostgreSQL database
