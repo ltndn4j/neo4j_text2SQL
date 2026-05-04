@@ -268,7 +268,7 @@ def compare_answer_accuracy(conn, columns_to_compare: str, reference_sql: str, g
     result = json.loads(response_text[0]["text"])
     return {
         "summary": result.get("summary"),
-        "accuracy": 0 if result.get("average_accuracy") is None or result.get("average_accuracy") < 0 else result.get("average_accuracy"),
+        "accuracy": 0 if not isinstance(result.get("average_accuracy"), (int, float)) or result.get("average_accuracy") < 0 else result.get("average_accuracy"),
         "accuracy_details": result.get("accuracy")
     }
 

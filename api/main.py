@@ -212,6 +212,24 @@ async def yaml_llm(body: ChatRequest):
         sql_queries=[out.get("sql_query")],
     )
 
+
+async def _resample_answer(backend: str, user_message: str, threshold: float, columns_to_compare: str, reference_sql: str):
+    generated_sql = []
+    generated_answer = ""
+    if backend == "yaml_llm":
+        out = run_yaml_llm_question(user_message, conn=app.state.db_conn)
+        total_tokens = out["usage"]["total_tokens"]
+        generated_sql = [out["sql_query"]]
+        generated_answer = out["answer"]
+    else:
+        isYamlAgent = backend == "yaml_agent"
+        cb, steps, context = await _answer_question(threshold, isYamlAgent, user_message)
+        total_tokens = _serialize_usage(cb, isYamlAgent)["total_tokens"]
+        generated_sql = _serialize_sql_query(steps)
+        generated_answer = clean_answer(steps),    
+    resample_result = compare_answer_accuracy(app.state.db_conn, columns_to_compare, reference_sql, generated_sql, generated_answer)
+    return resample_result["accuracy"], resample_result["summary"], total_tokens
+
 @app.post("/validate-answer", response_model=ValidateAnswerResponse)
 async def validate_answer(body: ValidateAnswerRequest):
     await check_db_conn(app)
@@ -230,28 +248,11 @@ async def validate_answer(body: ValidateAnswerRequest):
             summary_focus = []
         total_tokens = 0
         for i in range(body.resample_loops):
-            generated_sql = []
-            generated_answer = ""
-            if body.backend == "yaml_llm":
-                out = await run_in_threadpool(
-                            lambda: run_yaml_llm_question(
-                                body.user_message, conn=app.state.db_conn
-                            ),
-                        )
-                total_tokens += out["usage"]["total_tokens"]
-                generated_sql = [out["sql_query"]]
-                generated_answer = out["answer"]
-            else:
-                isYamlAgent = body.backend == "yaml_agent"
-                cb, steps, context = await _answer_question(body.threshold, isYamlAgent, body.user_message)
-                total_tokens += _serialize_usage(cb, isYamlAgent)["total_tokens"]
-                generated_sql = _serialize_sql_query(steps)
-                generated_answer = clean_answer(steps),
-            
-            resample_result = compare_answer_accuracy(conn, body.columns_to_compare, body.reference_sql, generated_sql, generated_answer)
-            average_accuracy_values.append(resample_result["accuracy"])
-            if resample_result["accuracy"] < 0.5:
-                summary_focus.append({"loopNumber":i+1,"accuracy": resample_result["accuracy"], "summary": resample_result["summary"]})
+            accuracy, summary, total_tokens = await _resample_answer(body.backend, body.user_message, body.threshold, body.columns_to_compare, body.reference_sql)
+            average_accuracy_values.append(accuracy)
+            if accuracy < 0.5:
+                summary_focus.append({"loopNumber":i+1,"accuracy": accuracy, "summary": summary})
+            total_tokens += total_tokens
         average_tokens = total_tokens / body.resample_loops
         average_accuracy = sum(average_accuracy_values) / len(average_accuracy_values)
 
