@@ -74,14 +74,13 @@ def check_question(question: dict, yaml_agent: bool):
         result = executor.invoke({"messages": [HumanMessage(content=question["question"])]})
         steps = result.get("messages", [])
         validation = compare_answer_accuracy(db_conn, question["columns_to_compare"], question["reference_sql"], get_sql_query(steps), get_answer(steps))
-        accuracy = 0 if validation["average_accuracy"] is None or validation["average_accuracy"] < 0 else validation["average_accuracy"]
         usage_data =  json.loads(json.dumps(getattr(cb, "usage_metadata", None), default=str))
         modelName = list(usage_data.keys())[0]
         tokens = usage_data[modelName]["total_tokens"]
     finally:
         db_conn.close()
         driver.close()
-    return accuracy, tokens
+    return validation["accuracy"], tokens
 
 def run_tests():
     result = []
@@ -96,7 +95,6 @@ def run_tests():
                     accuracy, tokens = future.result()
                     accuracies.append(accuracy)
                     usages.append(tokens)
-                    print(f"Running : {future.running()}")
             print(f"Average accuracy for \033[94m{'yaml' if yaml_agent else 'semantic layer'} agent\033[0m for question \033[94m{question['question']}\033[0m: \033[92m{sum(accuracies) / loops}\033[0m [~{sum(usages) / loops} tokens]")
             result.append({
                 "question": question["question"],

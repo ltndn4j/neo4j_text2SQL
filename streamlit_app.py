@@ -87,17 +87,31 @@ def request_answer_sql_validation(
     columns_to_compare: str,
     reference_sql: str,
     generated_sql: list[str],
-    answer: str = None,
+    answer: str,
+    user_message: str = None,
+    backend: str = PUBLIC_API_MODES[0],
+    threshold: float = THRESHOLD,
+    resample_loops: int = 0,
 ) -> dict:
     """
-    Call POST ``{api_base}/validate-sql-answer`` with the reference and generated SQL.
+    Call POST ``{api_base}/validate-answer`` with the reference and generated SQL.
 
     The FastAPI route is not implemented yet; this will raise until the server adds it.
     """
     base = api_base.rstrip("/")
     response = client.post(
-        f"{base}/validate-sql-answer",
-        json={"columns_to_compare": columns_to_compare,"reference_sql": reference_sql, "generated_sql": generated_sql, "generated_answer": answer},
+        f"{base}/validate-answer",
+        json={
+            "columns_to_compare": columns_to_compare,
+            "reference_sql": reference_sql, 
+            "generated_sql": generated_sql, 
+            "generated_answer": answer,
+            "user_message": user_message,
+            "backend": backend,
+            "threshold": threshold,
+            "resample_loops": resample_loops
+
+        },
     )
     response.raise_for_status()
     return response.json()
@@ -527,34 +541,20 @@ with col_chat:
                                         pending_reference_sql,
                                         sql_query,
                                         answer_text,
+                                        user_message=prompt,
+                                        backend=api_mode,
+                                        threshold=st.session_state.threshold,
+                                        resample_loops=st.session_state.validation_loop_count
                                     )
-                                    accuracy_details["displayed_answer_summary"] = sql_validation["summary"]
-                                    accuracy_details["displayed_answer_accuracy"] = sql_validation["accuracy"]
-                                    accuracy_details["displayed_answer_accuracy_details"] = sql_validation["accuracy_details"]
-                                    accuracy_details["average_accuracy"] = sql_validation["accuracy"]
-                                    my_bar.progress(2/total_steps, text=progress_text)
-
-                                    #ACCURACY RESAMPLE LOOPS
-                                    params = {"message": prompt,"yaml_agent": api_mode == "yaml_agent", "only_sql": True}
-                                    average_accuracy = [sql_validation["accuracy"]]
-                                    total_tokens = usage_data['total_tokens']
-                                    for i in range(int(st.session_state.validation_loop_count)):
-                                        r = v_client.post(f"{api_base}{endpoint}", json=params)
-                                        generated_sql = r.json().get("sql_queries")
-                                        total_tokens += r.json().get("usage", {}).get("total_tokens", 0)
-                                        my_bar.progress((2*i+3)/total_steps, text=progress_text)
-                                        v = request_answer_sql_validation(v_client,api_base,pending_columns_to_compare,pending_reference_sql,generated_sql, r.json().get("answer"))
-                                        if v["accuracy"] < 0.5:
-                                            mistakes.append({"loopNumber":i+1,"accuracy": v["accuracy"], "summary": v["summary"]})
-                                        average_accuracy.append(v["accuracy"])
-                                        accuracy_details["accuracy_values"] = average_accuracy
-                                        my_bar.progress((2*i+4)/total_steps, text=progress_text)
-                                if len(mistakes) > 0:
-                                    accuracy_details["mistakes_focus"] = mistakes
-                                sum_accuracy = sum(average_accuracy)
-                                accuracy_details["average_accuracy"] = sum_accuracy / len(average_accuracy)
-                                accuracy_details["average_total_tokens"] = total_tokens / len(average_accuracy)
-                                icon = _accuracy_answer_icon(float(accuracy_details["average_accuracy"]))
+                                    if "average_accuracy" in sql_validation and sql_validation["average_accuracy"] is not None:
+                                        accuracy_details = sql_validation
+                                        icon = _accuracy_answer_icon(float(sql_validation["average_accuracy"]))
+                                    else :
+                                        accuracy_details["summary"] = sql_validation["summary"]
+                                        accuracy_details["accuracy"] = sql_validation["accuracy"]
+                                        accuracy_details["accuracy_details"] = sql_validation["accuracy_details"]
+                                        icon = _accuracy_answer_icon(float(sql_validation["accuracy"]))
+                                    
                             with st.expander(f"Accuracy &nbsp; {icon}"):
                                 st.json(accuracy_details)
                     except httpx.HTTPStatusError as exc:

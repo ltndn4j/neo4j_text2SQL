@@ -264,8 +264,13 @@ def compare_answer_accuracy(conn, columns_to_compare: str, reference_sql: str, g
         tools=[],
         store=False,
     )
-    response_content = [c for c in response.content if c["type"] == "text"]
-    return json.loads(response_content[0]["text"])
+    response_text = [c for c in response.content if c["type"] == "text"]
+    result = json.loads(response_text[0]["text"])
+    return {
+        "summary": result.get("summary"),
+        "accuracy": 0 if result.get("average_accuracy") is None or result.get("average_accuracy") < 0 else result.get("average_accuracy"),
+        "accuracy_details": result.get("accuracy")
+    }
 
 
 def test_yaml_grounding():

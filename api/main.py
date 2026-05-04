@@ -125,16 +125,25 @@ class ChatResponse(BaseModel):
     embeddings: Optional[dict] = None
 
 
-class ValidateSQLAnswerRequest(BaseModel):
+class ValidateAnswerRequest(BaseModel):
     columns_to_compare: str
     reference_sql: str
     generated_sql: list[str]
-    generated_answer: Optional[str] = None
+    generated_answer: str
+    user_message: Optional[str] = None
+    backend: Optional[str] = None
+    threshold: Optional[float] = 0.7
+    resample_loops: Optional[int] = 0
 
-class ValidateSQLAnswerResponse(BaseModel):
+class ValidateAnswerResponse(BaseModel):
     summary: str
     accuracy: float
     accuracy_details: dict
+    average_accuracy: Optional[float] = None
+    average_accuracy_values: Optional[list[float]] = None
+    average_total_tokens_resample: Optional[int] = None
+    average_accuracy_summary_focus: Optional[list[dict]] = None
+    
 
 class ContextGraphRequest(BaseModel):
     embeddings: Optional[dict] = None
@@ -147,30 +156,33 @@ class ContextGraphRequest(BaseModel):
 def health():
     return {"status": "ok"}
 
-@app.post("/chat", response_model=ChatResponse)
-async def chat(body: ChatRequest):
-    await check_db_conn(app)
+async def _answer_question(threshold: float, yaml_agent: bool, message: str):
     cb = UsageMetadataCallbackHandler()
     context = {}
     executor = create_executor(
         app.state.neo4j_driver,
         app.state.db_conn,
         cb,
-        body.threshold,
-        yaml_agent=body.yaml_agent,
+        threshold,
+        yaml_agent=yaml_agent,
         context=context
     )
+    result = await run_in_threadpool(
+        executor.invoke, {"messages": [HumanMessage(content=message.strip())]}
+    )
+    steps = result.get("messages", [])
+    return cb, steps, context
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(body: ChatRequest):
+    await check_db_conn(app)
     try:
-        result = await run_in_threadpool(
-            executor.invoke, {"messages": [HumanMessage(content=body.message.strip())]}
-        )
+        cb, steps, context = await _answer_question(body.threshold, body.yaml_agent, body.message)
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail="The agent could not complete this request. Error: " + str(e),
         ) from None
-    
-    steps = result.get("messages", [])
     return ChatResponse(
         answer=clean_answer(steps),
         usage=_serialize_usage(cb, body.yaml_agent), 
@@ -200,14 +212,57 @@ async def yaml_llm(body: ChatRequest):
         sql_queries=[out.get("sql_query")],
     )
 
-@app.post("/validate-sql-answer", response_model=ValidateSQLAnswerResponse)
-async def validate_sql_answer(body: ValidateSQLAnswerRequest):
+@app.post("/validate-answer", response_model=ValidateAnswerResponse)
+async def validate_answer(body: ValidateAnswerRequest):
     await check_db_conn(app)
-    result = compare_answer_accuracy(app.state.db_conn, body.columns_to_compare, body.reference_sql, body.generated_sql, body.generated_answer)
-    return ValidateSQLAnswerResponse(
+    conn = app.state.db_conn
+    result = compare_answer_accuracy(conn, body.columns_to_compare, body.reference_sql, body.generated_sql, body.generated_answer)
+    average_accuracy = None
+    average_accuracy_values = None
+    average_tokens = None
+    summary_focus =  None
+
+    if body.resample_loops > 0:
+        average_accuracy_values = [result["accuracy"]]
+        if result["accuracy"] < 0.5:
+            summary_focus = [{"loopNumber":0,"accuracy": result["accuracy"], "summary": result["summary"]}]
+        else:
+            summary_focus = []
+        total_tokens = 0
+        for i in range(body.resample_loops):
+            generated_sql = []
+            generated_answer = ""
+            if body.backend == "yaml_llm":
+                out = await run_in_threadpool(
+                            lambda: run_yaml_llm_question(
+                                body.user_message, conn=app.state.db_conn
+                            ),
+                        )
+                total_tokens += out["usage"]["total_tokens"]
+                generated_sql = [out["sql_query"]]
+                generated_answer = out["answer"]
+            else:
+                isYamlAgent = body.backend == "yaml_agent"
+                cb, steps, context = await _answer_question(body.threshold, isYamlAgent, body.user_message)
+                total_tokens += _serialize_usage(cb, isYamlAgent)["total_tokens"]
+                generated_sql = _serialize_sql_query(steps)
+                generated_answer = clean_answer(steps),
+            
+            resample_result = compare_answer_accuracy(conn, body.columns_to_compare, body.reference_sql, generated_sql, generated_answer)
+            average_accuracy_values.append(resample_result["accuracy"])
+            if resample_result["accuracy"] < 0.5:
+                summary_focus.append({"loopNumber":i+1,"accuracy": resample_result["accuracy"], "summary": resample_result["summary"]})
+        average_tokens = total_tokens / body.resample_loops
+        average_accuracy = sum(average_accuracy_values) / len(average_accuracy_values)
+
+    return ValidateAnswerResponse(
         summary=result["summary"],
-        accuracy=0 if result["average_accuracy"] is None or result["average_accuracy"] < 0 else result["average_accuracy"],
-        accuracy_details=result["accuracy"],
+        accuracy=result["accuracy"],
+        accuracy_details=result["accuracy_details"],
+        average_accuracy=average_accuracy,
+        average_accuracy_values=average_accuracy_values,
+        average_total_tokens_resample=average_tokens,
+        average_accuracy_summary_focus=summary_focus
     )
 
 @app.post("/context-graph")
