@@ -37,50 +37,7 @@ THRESHOLD = 0.7
 WORKERS = 6
 
 # Curated example questions with reference SQL (expected answer query).
-QUESTION_SUGGESTIONS = [
-    {
-        "question": "How many candidates are there ?",
-        "reference_sql": "SELECT COUNT(*) AS candidate_count FROM recruitment.candidate;",
-        "columns_to_compare": "candidate_count",
-        "type": "default",
-    },
-    {
-        "question": "What is the average salary and its related satisfaction for men and women ?",
-        "reference_sql": """SELECT e.gender,
-  count(ss.employee_email) as survey_answer,
-  count(e.id) as employee_count,
-  AVG(s.amount) AS average_salary,
-  AVG(ss.payroll_score) AS average_payroll_satisfaction
-FROM employees.employee e
-JOIN employees.salary s ON s.employee_id = e.id  AND s.from_date <= DATE '2026-04-15' AND s.to_date > DATE '2026-04-16'
-LEFT JOIN hr_survey.satisfaction_survey ss ON ss.employee_email = e.email
-GROUP BY e.gender""",
-        "columns_to_compare": "Compare only the two columns average_salary and average_payroll_satisfaction, using the column gender as the reference where M matches man or men, F matches woman or women",
-        "type": "default",
-    },
-    {
-        "question": "Can you give me all the first names on each current role that are most common ?",
-        "reference_sql": """WITH RankedEmployees AS (
-    SELECT 
-        t.title, 
-        e.first_name, 
-        COUNT(e.id) AS employee_count,
-        ROW_NUMBER() OVER(PARTITION BY t.title ORDER BY COUNT(e.id) DESC) as rank_id
-    FROM employees.employee e
-    JOIN employees.title t ON t.employee_id = e.id
-    WHERE t.to_date = DATE '9999-01-01'
-    GROUP BY t.title, e.first_name
-)
-SELECT r1.title, r1.first_name, r1.employee_count
-FROM RankedEmployees r1
-JOIN RankedEmployees r2 ON r1.title = r2.title AND r1.employee_count = r2.employee_count
-WHERE r2.rank_id = 1
-ORDER BY r1.title, r1.first_name
-""",
-        "columns_to_compare": "Compare only the column first_name and employee_count if avaiblable, using the column title as the reference. Make sure to check all the first names for each title.",
-        "type": "default",
-    }
-]
+QUESTION_SUGGESTIONS = json.load(open("data/reference_questions.json"))
 
 
 def request_answer_sql_validation(
@@ -624,5 +581,5 @@ with col_chat:
                         use_container_width=True,
                         on_click=_queue_suggestion,
                         icon="✏️" if item["type"] == "udf" else None,
-                        args=(item["question"], item["reference_sql"], item["columns_to_compare"]),
+                        args=(item["question"], "\n".join(item["reference_sql_lines"]), item["columns_to_compare"]),
                     )

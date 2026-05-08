@@ -13,8 +13,6 @@ import neo4jHelpers.database as neo4jdb
 from dotenv import load_dotenv
 load_dotenv(override=True)
 
-PG_SCHEMA = "employees"
-
 SYSTEM_PROMPT = """You are a Text2SQL agent and are tasked with answering questions about our Human Resources datasets. 
 Use the metadata tools to collect relevant schema to inform your SQL queries.
 Rules:
