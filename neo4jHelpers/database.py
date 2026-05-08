@@ -5,7 +5,7 @@ import os
 
 def getDriver() -> neo4j.GraphDatabase.driver:
     if (os.getenv("NEO4J_URI") is not None):
-        return neo4j.GraphDatabase.driver(os.getenv("NEO4J_URI"), auth=(os.getenv("NEO4J_USERNAME"), os.getenv("NEO4J_PASSWORD")))
+        return neo4j.GraphDatabase.driver(os.getenv("NEO4J_URI"), auth=(os.getenv("NEO4J_USERNAME"), os.getenv("NEO4J_PASSWORD")), database=os.getenv("NEO4J_DATABASE"))
     project_id = os.getenv("PROJECT_ID")
     instance_name = os.getenv("NEO4J_INSTANCE_NAME")
     
