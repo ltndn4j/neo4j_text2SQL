@@ -163,12 +163,12 @@ def get_context_graph(api_base: str, embeddings: dict) -> tuple[pd.DataFrame, pd
 
 def _accuracy_answer_icon(average_accuracy: float) -> str:
     if average_accuracy >= 0.95:
-        return "🟢"
+        return f"**{average_accuracy*100:.0f}%** &nbsp; 🟢"
     if average_accuracy >= 0.9:
-        return "🟡"
+        return f"**{average_accuracy*100:.0f}%** &nbsp; 🟡"
     if average_accuracy >= 0.85:
-        return "🟠"
-    return "🔴"
+        return f"**{average_accuracy*100:.0f}%** &nbsp; 🟠"
+    return f"**{average_accuracy*100:.0f}%** &nbsp; 🔴"
 
 def create_visualization_graph(nodes_df: pd.DataFrame, rels_df: pd.DataFrame) -> str:
     nodes_df['labelColor'] = nodes_df['labels'].apply(lambda x: x[0] if x else None)
@@ -469,7 +469,7 @@ with col_chat:
             with st.chat_message(msg["role"],avatar=AVATAR[msg["role"]]):
                 st.markdown(msg["content"])
                 if st.session_state.show_usage and msg.get("usage"):
-                    with st.expander(f'Usage &nbsp; ({msg["usage"]["total_tokens"]} tokens)'):
+                    with st.expander(f'Usage: &nbsp; **{msg["usage"]["total_tokens"]:,} tokens**'):
                         st.json(msg["usage"])
                 if st.session_state.show_sql_query and msg.get("sql_query"):
                     with st.expander("SQL Query"):
@@ -479,7 +479,7 @@ with col_chat:
                     with st.expander("Tools"):
                         st.json(msg["tools"])
                 if msg.get("sql_validation") is not None:
-                    with st.expander(f"Accuracy &nbsp; {msg['accuracy_icon']}"):
+                    with st.expander(f"Accuracy: &nbsp; {msg['accuracy_icon']}"):
                         st.json(msg["sql_validation"])
     
         if prompt:
@@ -532,7 +532,7 @@ with col_chat:
                             answer_md_slot = st.empty()
                             answer_md_slot.markdown(answer_text)
                         if st.session_state.show_usage and usage_data:
-                            with st.expander(f"Usage &nbsp; ({usage_data['total_tokens']} tokens)"):
+                            with st.expander(f"Usage: &nbsp; **{usage_data['total_tokens']:,} tokens**"):
                                 st.json(usage_data)
                         if st.session_state.show_sql_query and sql_query:
                             with st.expander("SQL Query"):
@@ -586,7 +586,7 @@ with col_chat:
                                         accuracy_details["accuracy_details"] = sql_validation["accuracy_details"]
                                         icon = _accuracy_answer_icon(float(sql_validation["accuracy"]))
                                     
-                            with st.expander(f"Accuracy &nbsp; {icon}"):
+                            with st.expander(f"Accuracy: &nbsp; {icon}"):
                                 st.json(accuracy_details)
                     except httpx.HTTPStatusError as exc:
                         st.error(f"Error: {str(exc)}")
@@ -616,7 +616,7 @@ with col_chat:
             suggestions_slot.empty()
         else:
             with suggestions_slot.container():
-                st.caption("Example questions (Only suggested questions can have the accuracy checked)")
+                st.caption("Example questions (Add your own with the dedicated button if you want to check the accuracy)")
                 for i, item in enumerate(QUESTION_SUGGESTIONS + st.session_state.UDF):
                     st.button(
                         item["question"],
