@@ -70,7 +70,7 @@ def _serialize_sql_query(steps: list):
 def _serialize_tools(steps: list, question: Optional[str] = None):
     tools_name = ["Question rephrased by agent: " + question] if question else []
     tools = [tool for sublist in [step.tool_calls for step in steps if isinstance(step, AIMessage)] for tool in sublist]
-    tools_name.extend(["Tool used: " + f"{tool["name"]} ({tool["args"]["pg_schema"]})" if tool["name"] == "list_schema" else tool["name"] for tool in tools])
+    tools_name.extend(["Tool used: " + f"{tool["name"]} ({tool["args"]["pg_schema"]})" if tool["name"] == "list_tables" else tool["name"] for tool in tools])
     return tools_name
 
 def clean_answer(steps: list):
@@ -150,19 +150,19 @@ def health():
     return {"status": "ok"}
 
 def _answer_question(threshold: float, yaml_agent: bool, message: str):
-    cb = UsageMetadataCallbackHandler()
-    context = {}
-    executor = create_executor(
-        app.state.neo4j_driver,
-        app.state.db_conn,
-        cb,
-        threshold,
-        yaml_agent=yaml_agent,
-        context=context
-    )
-    result = executor.invoke({"messages": [HumanMessage(content=message.strip())]})
-    steps = result.get("messages", [])
-    return cb, steps, context
+        cb = UsageMetadataCallbackHandler()
+        context = {}
+        executor = create_executor(
+            app.state.neo4j_driver,
+            app.state.db_conn,
+            cb,
+            threshold,
+            yaml_agent=yaml_agent,
+            context=context
+        )
+        result = executor.invoke({"messages": [HumanMessage(content=message.strip())]})
+        steps = result.get("messages", [])
+        return cb, steps, context
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(body: ChatRequest):

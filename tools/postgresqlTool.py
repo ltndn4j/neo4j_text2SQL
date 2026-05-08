@@ -44,7 +44,7 @@ def create_db_tools(conn: psycopg2.extensions.connection):
         return out
 
     @tool
-    def list_schema(pg_schema: str) -> str:
+    def list_tables(pg_schema: str) -> str:
         """Return all table names and columns in the database schema (PostgreSQL).
         Call this when you have a doubt about the tables and columns of a specific schema."""
         rows = []
@@ -66,4 +66,23 @@ def create_db_tools(conn: psycopg2.extensions.connection):
             return f"No columns found for schema {pg_schema!r}."
         lines = [f"{t}.{c} ({dt}, nullable={n})" for t, c, dt, n in rows]
         return "\n".join(lines)
-    return [run_sql, list_schema]
+    
+    @tool
+    def list_schema() -> list[str]:
+        """Return all schemas in the database (PostgreSQL).
+        Call this when you need to list the available schemas in the database."""
+        rows = []
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                SELECT schema_name FROM information_schema.schemata 
+                WHERE schema_name NOT IN ('information_schema', 'public') AND schema_name NOT LIKE 'pg_%'
+                """)
+                rows = cur.fetchall()
+        except Exception as e:
+            return f"Schema query error: {e}"
+        if not rows:
+            return "No schemas found."
+        return [row[0] for row in rows]
+
+    return [run_sql, list_schema, list_tables]
