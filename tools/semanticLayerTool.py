@@ -9,23 +9,23 @@ EMBEDDING_DIMENSIONS = 1536
 CYPHER_SIMILARITY_QUERY_BASE = """CYPHER 25
 CALL () {
     MATCH (column:Column)
-        SEARCH column IN (VECTOR INDEX column_similarity FOR $userEmbedding LIMIT 10) SCORE as score
+        SEARCH column IN (VECTOR INDEX column_similarity FOR $userEmbedding LIMIT 20) SCORE as score
         WHERE score>$threshold
     RETURN DISTINCT column
     UNION
     MATCH (entryTerm:Term)
-        SEARCH entryTerm IN (VECTOR INDEX term_similarity FOR $userEmbedding LIMIT 10) SCORE as score
+        SEARCH entryTerm IN (VECTOR INDEX term_similarity FOR $userEmbedding LIMIT 20) SCORE as score
         WHERE score>$threshold-0.1
     MATCH (entryTerm)-[:HAS_TERM*0..]->(:Term)-[:DEFINES|HAS_COLUMN*1..2]->(column:Column)
     RETURN DISTINCT column
     UNION
     MATCH (column:Column)
-        SEARCH column IN (VECTOR INDEX column_similarity FOR $agentEmbedding LIMIT 10) SCORE as score
+        SEARCH column IN (VECTOR INDEX column_similarity FOR $agentEmbedding LIMIT 20) SCORE as score
         WHERE score>$threshold
     RETURN DISTINCT column
     UNION
     MATCH (entryTerm:Term)
-        SEARCH entryTerm IN (VECTOR INDEX term_similarity FOR $agentEmbedding LIMIT 10) SCORE as score
+        SEARCH entryTerm IN (VECTOR INDEX term_similarity FOR $agentEmbedding LIMIT 20) SCORE as score
         WHERE score>$threshold-0.1
     MATCH (entryTerm)-[:HAS_TERM*0..]->(:Term)-[:DEFINES|HAS_COLUMN*1..2]->(column:Column)
     RETURN DISTINCT column
@@ -59,7 +59,7 @@ def create_semantic_tools(driver: neo4j.Driver, threshold: float,context: dict =
             context["embeddings"] = {"user":user_embedding, "agent": agent_embedding}
             context["question"] = agent_query
         cypher=CYPHER_SIMILARITY_QUERY_BASE + """
-WITH DISTINCT sourceColumn as columnSimilarity, targetTable, [step in x[..-1] where step:Column or step:Table | step] as path
+WITH DISTINCT sourceColumn as columnSimilarity, targetTable, coalesce([step in x[..-1] where step:Column or step:Table | step], []) as path
 UNWIND range(0, CASE WHEN size(path)=0 THEN 0 ELSE size(path) - 2 END) AS i
 WITH DISTINCT columnSimilarity, targetTable, path, i, CASE WHEN path is null THEN NULL ELSE path[i] END AS current, CASE WHEN path is null THEN NULL ELSE path[i+1] END AS next
 WHERE (current:Column AND next:Column) OR size(path)=0 

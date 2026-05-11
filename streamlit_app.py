@@ -254,6 +254,8 @@ if "UDF" not in st.session_state:
     st.session_state.UDF = []
 if "graph_html" not in st.session_state:
     st.session_state.graph_html = None
+if "api_mode" not in st.session_state:
+    st.session_state.api_mode = PUBLIC_API_MODES[0]
 
 st.markdown(
     """
@@ -356,7 +358,8 @@ with _settings_col:
                 st.session_state.workers = st.select_slider(
                     "Number of workers for parallel processing",
                     options=[2, 4, 6, 8, 10],
-                    value=WORKERS
+                    value=WORKERS,
+                    disabled=not st.session_state.answer_validation,
                 )
             if st.session_state.validation_loop_count > 6:
                 st.warning("Many loops may take 1-2mn.", icon="🚨")
@@ -378,7 +381,7 @@ with _settings_col:
             _backend_options = list(PUBLIC_API_MODES)
             if st.session_state.show_hidden_backends:
                 _backend_options = list(PUBLIC_API_MODES) + list(HIDDEN_API_MODES)
-            api_mode = st.radio(
+            st.radio(
                 "Backend",
                 options=_backend_options,
                 format_func=lambda x: (
@@ -392,12 +395,11 @@ with _settings_col:
                 key="api_mode",
             )
             if st.session_state.show_hidden_backends:
-                print(f"api_mode: {api_mode}")
                 st.session_state.threshold = st.select_slider(
                     "Semantic similarity threshold",
                     options=[0, 0.2, 0.4, 0.5, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85],
                     value=THRESHOLD,
-                    disabled=api_mode != "agent",
+                    disabled=st.session_state.api_mode != "agent",
                     help="Select the Neo4j semantic layer backend to enable this option. Use with caution, higher threshold reduces provided context."
                 )
 
@@ -443,7 +445,7 @@ with col_chat:
             st.session_state.graph_nodes = None
             st.session_state.graph_rels = None
             message = "Processing question..."
-            message = message + "The graph will be updated when the question is answered." if api_mode == "agent" else message
+            message = message + "The graph will be updated when the question is answered." if st.session_state.api_mode == "agent" else message
             _fill_context_graph_placeholder(context_graph_area, message)
             if from_example_question or st.session_state.suppress_example_buttons:
                 prev_footer = st.session_state.get("_suggestions_footer")
@@ -459,19 +461,19 @@ with col_chat:
                 sql_query = None
                 tools = None
                 sql_validation = None
-                with st.chat_message("assistant",avatar=AVATAR[api_mode]):
+                with st.chat_message("assistant",avatar=AVATAR[st.session_state.api_mode]):
                     try:
-                        endpoint = "/chat" if api_mode == "agent" or api_mode == "yaml_agent" else "/yaml-llm"
-                        spinner_label = (
-                            "Waiting for the agent…"
-                            if api_mode == "agent" or api_mode == "yaml_agent"
-                            else "Waiting for AI…"
-                        )
+                        if st.session_state.api_mode == "yaml_llm":
+                            spinner_label = "Waiting for AI…"
+                            endpoint = "/yaml-llm"
+                        else:
+                            spinner_label = "Waiting for the agent…"
+                            endpoint = "/chat"
                         with st.spinner(spinner_label):
                             with httpx.Client(timeout=300.0) as client:
                                 chat_json = {
                                     "message": prompt,
-                                    "yaml_agent": api_mode == "yaml_agent",
+                                    "yaml_agent": st.session_state.api_mode == "yaml_agent",
                                     "threshold": st.session_state.threshold,
                                 }
                                 r = client.post(f"{api_base}{endpoint}", json=chat_json)
@@ -525,7 +527,7 @@ with col_chat:
                                         sql_query,
                                         answer_text,
                                         user_message=prompt,
-                                        backend=api_mode,
+                                        backend=st.session_state.api_mode,
                                         threshold=st.session_state.threshold,
                                         resample_loops=st.session_state.validation_loop_count,
                                         workers=st.session_state.workers,
@@ -554,7 +556,7 @@ with col_chat:
     
                 st.session_state.messages.append(
                     {
-                        "role": api_mode,
+                        "role": st.session_state.api_mode,
                         "content": answer_text or "_No response._",
                         "usage": usage_data,
                         "sql_query": sql_query or [],
