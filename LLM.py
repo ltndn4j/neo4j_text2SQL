@@ -1,8 +1,11 @@
-import json
+import os
 import pandas as pd
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
+from langchain_ollama import ChatOllama
 import tools.postgresqlTool as db
+from pydantic import BaseModel, Field
+
 
 load_dotenv(override=True)
 
@@ -22,13 +25,10 @@ Use the metadata schema to inform your SQL queries.
 {schema}
 ```
 
-# Output format
-You must return the SQL query in a JSON object with the following format:
-{{
-    "query": "SELECT * FROM employees.employee",
-    "reasoning": "I used the metadata schema to inform my query"
-}}
+# User Question to translate into SQL query
+{question}
 """
+
 PROMPT_RESULT = """
 # Identity
 You are a data analyst agent and are tasked with answering questions based on the data provided.
@@ -37,35 +37,35 @@ You are a data analyst agent and are tasked with answering questions based on th
 * Return the answer in a readable format
 * Don't make up data, only use the data provided
 
+# User Question
+{question}
+
 # Data
 {data}
 """
 
-PROMPT_VALIDATION = f"""
-# Identity
-You are a data analyst agent and are tasked to validate the answer of a LLM agent comparing the differences between 2 datasets
+class SQLResult(BaseModel):
+    query: str
+    reasoning: str
 
-# Rules:
-* Compare the generated answer with the reference data
-* Return the answer in a readable format
-* Don't make up data, only use the data provided
-* Only compare the values, not the titles or the order of the columns
-* Match the value of the generated answer with the reference data using the SQL query and the result provided in the generated data.
-* In the accuracy object, the key is the column name and the value is the accuracy between the reference and the generated value using the formula: (1 - (abs(reference - generated) / reference))
+class ColumnAccuracy(BaseModel):
+    column_name: str = Field(description="The name of the column in the generated data")
+    column_reference: str = Field(description="The name of the column used as reference for the comparison")
+    accuracy: float = Field(description="The accuracy between the reference and the generated value for this column")
 
-# Output format
-You must return the result in a JSON object with the following format:
-{{
-    "summary": "The summary of the differences between the 2 datasets",
-    "average_accuracy": 0.95,
-    "accuracy": {{"column1": 0.8, "column2": 0.9, "column3": 0.7}}
-}}
-"""
+class ValidationResult(BaseModel):
+    summary: str = Field(description="A summary of the validation results")
+    average_accuracy: float = Field(description="The average accuracy between the reference and the generated value for all columns")
+    accuracy: list[ColumnAccuracy] = Field(description="The accuracy between the reference and the generated value for each column")
 
-MODEL_NAME = "gpt-5.4-mini"
-REASONING_EFFORT = "low"
-
-llm = ChatOpenAI(use_responses_api=True, temperature=0)
+def get_llm(callbacks=None, advanced_config=False):
+    if os.getenv("LOCAL_MODEL") == "true":
+        return ChatOllama(model="devstral-small-2", temperature=0, callbacks=callbacks)
+    else:
+        if advanced_config:
+            return ChatOpenAI(model="gpt-5.4-mini", temperature=0, callbacks=callbacks, reasoning={"effort": "low"})
+        else:
+            return ChatOpenAI(model="gpt-5.4-mini", temperature=0, callbacks=callbacks)
 
 def _load_schema_text() -> str:
     with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
@@ -82,47 +82,21 @@ def run_yaml_llm_question(
     if schema_text is None:
         schema_text = _load_schema_text()
 
-    response = llm.invoke(
-        model=MODEL_NAME,
-        input=[
-            {
-                "role": "developer",
-                "content": [
-                    {"type": "input_text", "text": PROMPT_SQL.format(schema=schema_text)}
-                ],
-            },
-            {
-                "role": "user",
-                "content": [{"type": "input_text", "text": question}],
-            },
-        ],
-        text={"format": {"type": "json_object"}},
-        reasoning={"effort": REASONING_EFFORT},
-        temperature=0,
-        tools=[],
-        store=False,
-    )
-    usage = {
-                "model": response.response_metadata["model_name"],
-                "input_tokens": response.usage_metadata["input_tokens"],
-                "output_tokens": response.usage_metadata["output_tokens"],
-                "total_tokens": response.usage_metadata["total_tokens"],
-            }
-    try:
-        response_content = [c for c in response.content if c["type"] == "text"]
-        response_json = json.loads(response_content[0]["text"])
-        
-    except (json.JSONDecodeError, TypeError) as e:
-        return {
-            "with_error": False,
-            "answer": f"Could not parse model output as JSON: {e}",
-            "sql_query": None,
-            "reasoning": None,
-            "usage": usage,
-        }
+    prompt = PROMPT_SQL.format(schema=schema_text, question=question)
+    llm = get_llm()
+    response = llm.with_structured_output(SQLResult, method="json_schema", include_raw=True).invoke(prompt)
+    raw = response["raw"]
+    result = response["parsed"]
 
-    query = response_json.get("query")
-    reasoning = response_json.get("reasoning")
+    usage = {
+                "model": raw.response_metadata["model_name"],
+                "input_tokens": raw.usage_metadata["input_tokens"],
+                "output_tokens": raw.usage_metadata["output_tokens"],
+                "total_tokens": raw.usage_metadata["total_tokens"],
+            }
+
+    query = result.query
+    reasoning = result.reasoning
 
     if not query or not isinstance(query, str):
         return {
@@ -145,56 +119,26 @@ def run_yaml_llm_question(
             cur.execute(query)
             if cur.description is None:
                 output_text = "Query executed successfully; no rows to display."
-                input_tokens = response.usage.input_tokens
-                output_tokens = response.usage.output_tokens
-                total_tokens = response.usage.total_tokens
+                input_tokens = usage["input_tokens"]
+                output_tokens = usage["output_tokens"]
+                total_tokens = usage["total_tokens"]
             else:
                 rows = cur.fetchall()
                 df = pd.DataFrame(rows, columns=[desc[0] for desc in cur.description])
                 if only_data:
                     return df
-                response_with_data = llm.invoke(
-                    model=MODEL_NAME,
-                    input=[
-                        {
-                            "role": "developer",
-                            "content": [
-                                {
-                                    "type": "input_text",
-                                    "text": PROMPT_RESULT.format(data=df.to_markdown()),
-                                }
-                            ],
-                        },
-                        {
-                            "role": "user",
-                            "content": [{"type": "input_text", "text": question}],
-                        },
-                    ],
-                    reasoning={},
-                    temperature=0,
-                    tools=[],
-                    store=False,
-                )
-                response_with_data_content = [c for c in response_with_data.content if c["type"] == "text"]
-                output_text = response_with_data_content[0]["text"]
-                input_tokens = (
-                    response.usage_metadata["input_tokens"]
-                    + response_with_data.usage_metadata["input_tokens"]
-                )
-                output_tokens = (
-                    response.usage_metadata["output_tokens"]
-                    + response_with_data.usage_metadata["output_tokens"]
-                )
-                total_tokens = (
-                    response.usage_metadata["total_tokens"]
-                    + response_with_data.usage_metadata["total_tokens"]
-                )
+                prompt = PROMPT_RESULT.format(data=df.to_markdown(), question=question)
+                answer = llm.invoke(prompt)
+                output_text = answer.content
+                input_tokens = usage["input_tokens"] + answer.usage_metadata["input_tokens"]
+                output_tokens = usage["output_tokens"] + answer.usage_metadata["output_tokens"]
+                total_tokens = usage["total_tokens"] + answer.usage_metadata["total_tokens"]
         except Exception as e:
             failed = True
             output_text = f"Error: {e}"
-            input_tokens = response.usage_metadata["input_tokens"]
-            output_tokens = response.usage_metadata["output_tokens"]
-            total_tokens = response.usage_metadata["total_tokens"]
+            input_tokens = usage["input_tokens"]
+            output_tokens = usage["output_tokens"]
+            total_tokens = usage["total_tokens"]
             conn.rollback()
 
     return {
@@ -204,14 +148,36 @@ def run_yaml_llm_question(
         "reasoning": reasoning if isinstance(reasoning, str) else None,
         "usage": {
             "backend": "LLM+YAML Grounding",
-            "model": response.response_metadata["model_name"],
+            "model": usage["model"],
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             "total_tokens": total_tokens,
         },
     }
 
-PROMPT_VALIDATION_DATA = """#Generated answer
+PROMPT_VALIDATION_DATA = """# Identity
+You are a data analyst agent and are tasked to validate the answer of a LLM agent comparing the differences between 2 datasets
+
+# Rules:
+* Compare the generated answer with the reference data
+* Return the answer in a readable format
+* Don't make up data, only use the data provided
+* Only compare the values, not the titles or the order of the columns
+* Match the value of the generated answer with the reference data using the SQL query and the result provided in the generated data.
+* In the accuracy object, the key is the column name and the value is the accuracy between the reference and the generated value using the formula: (1 - (abs(reference - generated) / reference))
+
+# Output format
+You must return the result in a JSON object with the following format:
+{{
+    "summary": "The summary of the differences between the 2 datasets",
+    "average_accuracy": 0.85,
+    "accuracy": [
+        {{"column_name": "column1", "column_reference": "column_one", "accuracy": 0.8}}, 
+        {{"column_name": "column2", "column_reference": "column_two", "accuracy": 0.9}} 
+    ]
+}}
+
+#Generated answer
 {generated_answer}
 #Columns to compare:
 {focus}
@@ -247,95 +213,23 @@ def compare_answer_accuracy(conn, columns_to_compare: str, reference_sql: str, g
                 gen_data = f"Error: {e}"
                 conn.rollback()
             prompt += PROMPT_VALIDATION_DATA_GENERATED.format(gen_sql=sql, gen_data=gen_data)
-    response = llm.invoke(
-        model=MODEL_NAME,
-        input=[
-            {
-                "role": "developer",
-                "content": [
-                    {"type": "input_text", "text": PROMPT_VALIDATION}
-                ],
-            },
-            {
-                "role": "user",
-                "content": [{"type": "input_text", "text": prompt}],
-            },
-        ],
-        text={"format": {"type": "json_object"}},
-        reasoning={"effort": REASONING_EFFORT},
-        temperature=0,
-        tools=[],
-        store=False,
-    )
-    response_text = [c for c in response.content if c["type"] == "text"]
-    result = json.loads(response_text[0]["text"])
+    response = ValidationResult(summary="None", average_accuracy=0, accuracy=[])
+    if os.getenv("LOCAL_MODEL") == "true":
+        response = get_llm().with_structured_output(ValidationResult, method="json_schema").invoke(prompt)
+    else:
+        raw = get_llm(advanced_config=True).invoke(prompt)
+        try:
+            final_answer = [content["text"] for content in raw.content if content.get("phase", None) == "final_answer"][0]
+            response = ValidationResult.model_validate_json(final_answer)
+        except Exception as e:
+            response.summary = "Error: " + str(e)
+    
+    response.average_accuracy = response.average_accuracy if isinstance(response.average_accuracy, (int, float)) and response.average_accuracy > 0 else 0
     return {
-        "summary": result.get("summary"),
-        "accuracy": result.get("average_accuracy") if isinstance(result.get("average_accuracy"), (int, float)) and result.get("average_accuracy") > 0 else 0,
-        "accuracy_details": result.get("accuracy")
-    }
-
-
-def test_yaml_grounding():
-    questions = [
-        "How many employees are there in the company ?",
-        "What is the average salary and the related satifaction on the compensation for man and woman in the company ?",
-    ]
-    conn = db.get_db_connect()
-    try:
-        for question in questions:
-            print(f"\n\033[94mQuestion: {question}\033[0m")
-            out = run_yaml_llm_question(question, conn=conn)
-            print(out["answer"])
-            print(f"\033[94mModel used: {out['usage']['model']}\033[0m")
-            u = out["usage"]
-            print(f"\033[94mTotal tokens: {u['total_tokens']}\033[0m")
-            print(f"\033[93mInput tokens: {u['input_tokens']}\033[0m")
-            print(f"SQL Query used: \n\033[92m{out['sql_query']}\033[0m")
-    finally:
-        conn.close()
-
-def test_sql_result_loop():
-
-    question = "What is the average salary and its related satisfaction for man and woman ?"
-    sql_answer = """
-    SELECT e.gender,
-	   AVG(s.amount) AS average_salary,
-       AVG(ss.payroll_score) AS average_satisfaction
-    FROM employees.employee e
-    JOIN employees.salary s
-        ON s.employee_id = e.id 
-        AND s.from_date <= DATE '2026-04-15' AND s.to_date > DATE '2026-04-16'
-    LEFT JOIN hr_survey.satisfaction_survey ss
-        ON ss.employee_email = e.email
-    GROUP BY e.gender
-    """
-    conn = db.get_db_connect()
-    reference_answer = {"Men":{}, "Women":{}}
-    with conn.cursor() as cur:
-        cur.execute(sql_answer)
-        rows = cur.fetchall()
-        for row in rows:
-            if row[0] == "M":
-                reference_answer["Men"]["average_salary"] = row[1]
-                reference_answer["Men"]["average_satisfaction"] = row[2]
-            else:
-                reference_answer["Women"]["average_salary"] = row[1]
-                reference_answer["Women"]["average_satisfaction"] = row[2]
-    print("Reference answer:")
-    print(pd.DataFrame(rows, columns=[desc[0] for desc in cur.description]).to_markdown())
-    print("--------------------------------\n")
-    #Execute 10 times the query and get the average of the results
-    for i in range(10):
-        out = run_yaml_llm_question(question, conn=conn, only_data=True)
-        if type(out) == pd.DataFrame:
-            print(f"{out.to_markdown()}\n")
-        else:
-            print(f"{out['answer']}")
-            conn = db.get_db_connect()
-
-if __name__ == "__main__":
-    print("Testing YAML Grounding")
-    test_yaml_grounding()
-    print("Testing RAW SQL Result 10 times")
-    test_sql_result_loop()
+            "summary": response.summary,
+            "accuracy": response.average_accuracy,
+            "accuracy_details": {
+                item.column_name: {"column_reference": item.column_reference, "accuracy": item.accuracy}
+                for item in response.accuracy
+            }
+        }

@@ -6,7 +6,8 @@ def create_static_context_tools():
     def get_markdown_context() -> str:
         """
         Get the metadata schema in markdown format.
-        This is providing a description how you can query the dataset.
+        This is providing a technical and business description of the dataset, including joins between tables and columns.
+        It is used to provide a context to the agent to understand how you can query the dataset.
         """
         with open("data/database_schema.md", "r") as schema:
             schema_markdown = schema.read()
@@ -16,7 +17,8 @@ def create_static_context_tools():
     def get_yaml_context() -> str:
         """
         Get the metadata schema in yaml format.
-        This is providing a description how you can query the dataset.
+        This is providing a technical and business description of the dataset, including joins between tables and columns.
+        It is used to provide a context to the agent to understand how you can query the dataset.
         """
         with open("data/database_schema.yaml", "r") as schema:
             schema_yaml = schema.read()

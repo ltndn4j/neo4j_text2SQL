@@ -1,43 +1,46 @@
 from langchain_core.tools import tool
+from langchain_ollama import OllamaEmbeddings
+import os
 import neo4j
 import openai
 import json
+
 
 EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIMENSIONS = 1536
 
 CYPHER_SIMILARITY_QUERY_BASE = """CYPHER 25
-CALL () {
+CALL () {{
     MATCH (column:Column)
-        SEARCH column IN (VECTOR INDEX column_similarity FOR $userEmbedding LIMIT 20) SCORE as score
+        SEARCH column IN (VECTOR INDEX {col_index} FOR $userEmbedding LIMIT 20) SCORE as score
         WHERE score>$threshold
     RETURN DISTINCT column
     UNION
     MATCH (entryTerm:Term)
-        SEARCH entryTerm IN (VECTOR INDEX term_similarity FOR $userEmbedding LIMIT 20) SCORE as score
+        SEARCH entryTerm IN (VECTOR INDEX {term_index} FOR $userEmbedding LIMIT 20) SCORE as score
         WHERE score>$threshold-0.1
     MATCH (entryTerm)-[:HAS_TERM*0..]->(:Term)-[:DEFINES|HAS_COLUMN*1..2]->(column:Column)
     RETURN DISTINCT column
     UNION
     MATCH (column:Column)
-        SEARCH column IN (VECTOR INDEX column_similarity FOR $agentEmbedding LIMIT 20) SCORE as score
-        WHERE score>$threshold
+        SEARCH column IN (VECTOR INDEX {col_index} FOR $agentEmbedding LIMIT 20) SCORE as score
+        WHERE score>$threshold+0.1
     RETURN DISTINCT column
     UNION
     MATCH (entryTerm:Term)
-        SEARCH entryTerm IN (VECTOR INDEX term_similarity FOR $agentEmbedding LIMIT 20) SCORE as score
-        WHERE score>$threshold-0.1
+        SEARCH entryTerm IN (VECTOR INDEX {term_index} FOR $agentEmbedding LIMIT 20) SCORE as score
+        WHERE score>$threshold
     MATCH (entryTerm)-[:HAS_TERM*0..]->(:Term)-[:DEFINES|HAS_COLUMN*1..2]->(column:Column)
     RETURN DISTINCT column
-}
+}}
 WITH collect(DISTINCT column) as columns
 UNWIND columns as sourceColumn
 UNWIND columns as targetColumn
 WITH sourceColumn, targetColumn
 OPTIONAL MATCH links = SHORTEST 1
-    (:Table {name:sourceColumn.tableName})
-    (()-[:HAS_COLUMN|HAS_FOREIGN_KEY|ON_COLUMN|REFERENCES]-(x)){0,16}
-    (targetTable:Table {name:targetColumn.tableName})
+    (:Table {{name:sourceColumn.tableName}})
+    (()-[:HAS_COLUMN|HAS_FOREIGN_KEY|ON_COLUMN|REFERENCES]-(x)){{0,16}}
+    (targetTable:Table {{name:targetColumn.tableName}})
 """
 
 def create_semantic_tools(driver: neo4j.Driver, threshold: float,context: dict = None):
@@ -52,13 +55,27 @@ def create_semantic_tools(driver: neo4j.Driver, threshold: float,context: dict =
         """
         if not user_query.strip():
             return "Provide a non-empty query."
-
-        user_embedding = openai.embeddings.create(input=user_query, model=EMBEDDING_MODEL).data[0].embedding
-        agent_embedding = openai.embeddings.create(input=user_query, model=EMBEDDING_MODEL).data[0].embedding
+        if os.getenv("LOCAL_MODEL") == "true":
+            embeddingModel = OllamaEmbeddings(model="nomic-embed-text", dimensions=768)
+            user_embedding = embeddingModel.embed_query(user_query)
+            if agent_query:
+                agent_embedding = embeddingModel.embed_query(agent_query)
+            else:
+                agent_embedding = None
+            colIndex = "column_similarity_local"
+            termIndex = "term_similarity_local"
+        else:
+            user_embedding = openai.embeddings.create(input=user_query, model=EMBEDDING_MODEL).data[0].embedding
+            if agent_query:
+                agent_embedding = openai.embeddings.create(input=agent_query, model=EMBEDDING_MODEL).data[0].embedding
+            else:
+                agent_embedding = None
+            colIndex = "column_similarity"
+            termIndex = "term_similarity"
         if isinstance(context, dict):
             context["embeddings"] = {"user":user_embedding, "agent": agent_embedding}
             context["question"] = agent_query
-        cypher=CYPHER_SIMILARITY_QUERY_BASE + """
+        cypher=CYPHER_SIMILARITY_QUERY_BASE.format(col_index=colIndex, term_index=termIndex) + """
 WITH DISTINCT sourceColumn as columnSimilarity, targetTable, coalesce([step in x[..-1] where step:Column or step:Table | step], []) as path
 UNWIND range(0, CASE WHEN size(path)=0 THEN 0 ELSE size(path) - 2 END) AS i
 WITH DISTINCT columnSimilarity, targetTable, path, i, CASE WHEN path is null THEN NULL ELSE path[i] END AS current, CASE WHEN path is null THEN NULL ELSE path[i+1] END AS next
@@ -116,7 +133,6 @@ RETURN {
     columns: columns
 } as result
 """
-
         with driver.session() as session:
             try:
                 session.run(

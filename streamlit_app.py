@@ -20,6 +20,9 @@ import httpx
 import streamlit as st
 from neo4j_viz.colors import ColorSpace
 from neo4j_viz.pandas import from_dfs
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
 
 CONTENT_HEIGHT_PX = 640
 
@@ -33,7 +36,7 @@ AVATAR = {
 PUBLIC_API_MODES = ["yaml_agent", "agent"]
 HIDDEN_API_MODES = ["yaml_llm"]
 
-THRESHOLD = 0.7
+THRESHOLD = 0.8 if os.getenv("LOCAL_MODEL") == "true" else 0.7
 WORKERS = 6
 
 # Curated example questions with reference SQL (expected answer query).

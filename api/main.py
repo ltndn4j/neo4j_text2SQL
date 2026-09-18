@@ -74,11 +74,11 @@ def _serialize_tools(steps: list, question: Optional[str] = None):
     return tools_name
 
 def clean_answer(steps: list):
-    final_answer = str(steps[-1])
+    final_answer = steps[-1].content
     for step in steps:
         if isinstance(step, AIMessage):
             for content in step.content:
-                if content.get("phase") == "final_answer":
+                if "phase" in content and content.get("phase") == "final_answer":
                     final_answer = content["text"]
     return str(final_answer)
 
@@ -160,7 +160,10 @@ def _answer_question(threshold: float, yaml_agent: bool, message: str):
             yaml_agent=yaml_agent,
             context=context
         )
-        result = executor.invoke({"messages": [HumanMessage(content=message.strip())]})
+        try:
+            result = executor.invoke({"messages": [HumanMessage(content=message.strip())]})
+        except Exception as e:
+            print(f"Error: {e}")
         steps = result.get("messages", [])
         return cb, steps, context
 

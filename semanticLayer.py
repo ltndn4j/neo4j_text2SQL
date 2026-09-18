@@ -1,4 +1,5 @@
 import neo4j
+import os
 import pandas as pd
 from tools.semanticLayerTool import CYPHER_SIMILARITY_QUERY_BASE
 
@@ -23,7 +24,14 @@ def get_model(driver: neo4j.Driver) -> pd.DataFrame:
     )
     return result
 
-CONTEXT_QUERY = CYPHER_SIMILARITY_QUERY_BASE + """
+if os.getenv("LOCAL_MODEL") == "true":
+    colIndex = "column_similarity_local"
+    termIndex = "term_similarity_local"
+else:
+    colIndex = "column_similarity"
+    termIndex = "term_similarity"
+
+CONTEXT_QUERY = CYPHER_SIMILARITY_QUERY_BASE.format(col_index=colIndex, term_index=termIndex) + """
 WITH DISTINCT sourceColumn as columnSimilarity, links
 MATCH (table:Table)-[:HAS_COLUMN]->(columnSimilarity:Column)
 MATCH p=(:Schema)-[:CONTAINS_TABLE]->(table)-[:HAS_COLUMN]->(column:Column)
@@ -35,7 +43,7 @@ UNWIND allpath as path
 CALL (path) {
     WITH nodes(path) as nodes
     UNWIND nodes as node
-    RETURN "NODE" as class, elementId(node) as id, labels(node) as labels, "" as type, "" as source, "" as target, apoc.map.removeKey(properties(node), "embedding") as properties
+    RETURN "NODE" as class, elementId(node) as id, labels(node) as labels, "" as type, "" as source, "" as target, apoc.map.removeKeys(properties(node), ["embedding","localEmbedding"]) as properties
     UNION
     WITH relationships(path) as rels
     UNWIND rels as rel

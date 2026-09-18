@@ -1,7 +1,9 @@
 from dotenv import load_dotenv
+import load.addLocalEmbeddings as local_e
 import neo4j
 import openai
 import json
+import os
 
 load_dotenv(override=True)
 
@@ -72,3 +74,5 @@ def load(driver: neo4j.GraphDatabase.driver, initialize: bool = False):
         with open("data/business_glossary.json", "r") as f:
             glossary = json.load(f)
         load_terms(session, None, glossary)
+    if (os.getenv("LOCAL_MODEL") == "true"):
+        local_e.update()
