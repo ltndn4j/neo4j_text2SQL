@@ -111,23 +111,32 @@ def load_schema(db_conn: psycopg2.extensions.connection, driver: neo4j.GraphData
             #Retrieve all the foreign keys of the tables
             query="""
             SELECT
-                tc.table_schema,
-                tc.table_name, 
-                tc.constraint_name, 
-                kcu.column_name, 
-                ccu.table_schema AS foreign_schema_name,
-				ccu.table_name AS foreign_table_name,
-                ccu.column_name AS foreign_column_name 
-            FROM information_schema.table_constraints AS tc 
-            JOIN information_schema.key_column_usage AS kcu
-                ON tc.constraint_name = kcu.constraint_name
-                AND tc.table_schema = kcu.table_schema
-            JOIN information_schema.constraint_column_usage AS ccu
-                ON ccu.constraint_name = tc.constraint_name
-            WHERE 
-                tc.constraint_type = 'FOREIGN KEY'
-                AND tc.table_schema = %s
-            ORDER BY tc.table_name, tc.constraint_name
+                src_ns.nspname AS table_schema,
+                src_tbl.relname AS table_name,
+                con.conname AS constraint_name,
+                src_att.attname AS column_name,
+                tgt_ns.nspname AS foreign_schema_name,
+                tgt_tbl.relname AS foreign_table_name,
+                tgt_att.attname AS foreign_column_name
+            FROM pg_catalog.pg_constraint con
+            JOIN pg_catalog.pg_class src_tbl 
+                ON con.conrelid = src_tbl.oid
+            JOIN pg_catalog.pg_namespace src_ns 
+                ON src_tbl.relnamespace = src_ns.oid
+            JOIN pg_catalog.pg_class tgt_tbl 
+                ON con.confrelid = tgt_tbl.oid
+            JOIN pg_catalog.pg_namespace tgt_ns 
+                ON tgt_tbl.relnamespace = tgt_ns.oid
+            CROSS JOIN LATERAL generate_subscripts(con.conkey, 1) AS i
+            JOIN pg_catalog.pg_attribute src_att 
+                ON src_att.attrelid = src_tbl.oid 
+            AND src_att.attnum = con.conkey[i]
+            JOIN pg_catalog.pg_attribute tgt_att 
+                ON tgt_att.attrelid = tgt_tbl.oid 
+            AND tgt_att.attnum = con.confkey[i]
+            WHERE con.contype = 'f'
+            AND src_ns.nspname = %s
+            ORDER BY src_tbl.relname, con.conname, i;
             """
             cur.execute(query, (schema_name,))
             foreign_keys = cur.fetchall()
